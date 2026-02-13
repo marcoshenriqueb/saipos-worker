@@ -8,8 +8,9 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "lint": "node -e \"console.log('ok')\"",
+    "migrate": "npm run db:migrate",
     "db:migrate": "./scripts/migrate.sh",
-    "db:psql": "docker compose exec db psql -U postgres -d saipos"
+    "db:psql": "node -e \"console.log(process.env.DATABASE_URL||'DATABASE_URL not set')\""
   },
   "keywords": [],
   "author": "",
