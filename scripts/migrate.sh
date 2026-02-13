@@ -12,7 +12,7 @@ if [ -z "${DATABASE_URL:-}" ]; then
 fi
 
 # Print without querystring if present
-BASE_URL=$(printf "%s" "$DATABASE_URL" | sed 's/\?.*$//')
+BASE_URL="${DATABASE_URL%%\\?*}"
 echo "🗄️  Running migrations against: $BASE_URL"
 
 node <<'NODE'
