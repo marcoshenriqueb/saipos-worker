@@ -1,14 +1,26 @@
 import axios from "axios";
 import { config } from "./config";
 
+/**
+ * Cached token + expiry to avoid reauth on every request.
+ */
 type TokenCache = { token: string; expEpochMs: number } | null;
 let tokenCache: TokenCache = null;
 
+/**
+ * Decode the `exp` claim from a JWT and return the epoch in milliseconds.
+ * Returns null when decoding fails or `exp` is not present.
+ */
 function decodeJwtExpMs(jwt: string): number | null {
-  // exp é em segundos; se falhar, retorna null
   try {
-    const payload = jwt.split(".")[1];
-    const json = JSON.parse(Buffer.from(payload, "base64").toString("utf8"));
+    const payloadB64Url = jwt.split(".")[1];
+    if (!payloadB64Url) return null;
+
+    // JWT uses base64url (RFC 7515). Convert to base64 and pad.
+    const b64 = payloadB64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
+    const json = JSON.parse(Buffer.from(b64 + pad, "base64").toString("utf8"));
+
     if (typeof json.exp === "number") return json.exp * 1000;
     return null;
   } catch {
@@ -16,6 +28,11 @@ function decodeJwtExpMs(jwt: string): number | null {
   }
 }
 
+/**
+ * Obtain an authentication token from Saipos, with in-memory caching.
+ * Reuses the token while it is valid for at least 30 seconds.
+ * @returns token string
+ */
 export async function getToken(): Promise<string> {
   // se temos token e ainda é válido por pelo menos 30s, reutiliza
   if (tokenCache && Date.now() < tokenCache.expEpochMs - 30_000) return tokenCache.token;
@@ -39,16 +56,34 @@ export async function getToken(): Promise<string> {
   return token;
 }
 
+/**
+ * Query Saipos API for an order by `orderId` and `storeId`.
+ * Handles HTTP errors and Saipos business errors reported in the JSON body.
+ * @param orderId - Saipos order identifier
+ * @param storeId - store code used by Saipos
+ * @returns the response body (parsed JSON)
+ */
 export async function consultOrder(orderId: string, storeId: string): Promise<any> {
-  const token = await getToken();
-
   const url = `${config.saipos.baseUrl}/order`;
-  const resp = await axios.get(url, {
-    params: { order_id: orderId, cod_store: storeId },
-    headers: { Authorization: token },
-    timeout: 20_000,
-    validateStatus: () => true, // a gente trata manualmente
-  });
+
+  const doRequest = async (token: string) => {
+    return axios.get(url, {
+      params: { order_id: orderId, cod_store: storeId },
+      headers: { Authorization: token },
+      timeout: 20_000,
+      validateStatus: () => true, // a gente trata manualmente
+    });
+  };
+
+  let token = await getToken();
+  let resp = await doRequest(token);
+
+  // token expirado/invalidado: reauth 1x e tenta de novo
+  if (resp.status === 401) {
+    tokenCache = null;
+    token = await getToken();
+    resp = await doRequest(token);
+  }
 
   // pode vir 200 com errorCode no body
   if (resp.status >= 400) {

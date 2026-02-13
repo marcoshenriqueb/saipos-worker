@@ -2,10 +2,18 @@ import { config } from "./config";
 import { consultOrder } from "./saipos";
 import { markDead, markDone, markError, pickEvents, upsertOrdersRaw, InboxEvent } from "./db";
 
+/**
+ * Small promise-based sleep helper.
+ * @param ms milliseconds to wait
+ */
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/**
+ * Compute exponential backoff in milliseconds (with light jitter).
+ * `attempts` is expected to be 1-based (1,2,3...).
+ */
 function computeBackoffMs(attempts: number): number {
   // attempts já vem incrementado (1,2,3...)
   const base = config.retry.baseBackoffMs;
@@ -16,11 +24,20 @@ function computeBackoffMs(attempts: number): number {
   return ms + jitter;
 }
 
+/**
+ * Compute the next retry timestamp based on number of attempts.
+ * @param attempts number of attempts already made (1-based)
+ * @returns Date for next retry
+ */
 function nextRetryDate(attempts: number): Date {
   const ms = computeBackoffMs(attempts);
   return new Date(Date.now() + ms);
 }
 
+/**
+ * Heuristic to decide if an error is permanent (no retries).
+ * Customize based on Saipos error messages/codes.
+ */
 function isPermanentError(e: any): boolean {
   // exemplo: “pedido não existe” pode ser permanente
   const msg = String(e?.message || "");
@@ -31,6 +48,10 @@ function isPermanentError(e: any): boolean {
   return false;
 }
 
+/**
+ * Main worker loop: picks events, processes them, and handles errors/retries.
+ * This function runs forever until the process is terminated.
+ */
 export async function runWorkerForever(): Promise<void> {
   console.log("🚀 Worker iniciado.");
 
@@ -55,6 +76,10 @@ export async function runWorkerForever(): Promise<void> {
   }
 }
 
+/**
+ * Process a single `InboxEvent`: fetch order from Saipos, persist raw order,
+ * and update event status (done / error / dead).
+ */
 async function processOne(ev: InboxEvent): Promise<void> {
   const { id, provider, store_id, order_id, event, attempts, received_at } = ev;
 

@@ -2,6 +2,11 @@ import { pickRawForNormalize, markRawNormalized } from "./db";
 import { upsertCustomer, insertAddress } from "./db";
 import { upsertOrderNormalized, replaceOrderItems } from "./db";
 
+/**
+ * Long-running normalizer that reads raw orders, extracts/normalizes
+ * customer, address, order and items data, and persists them in normalized tables.
+ * Runs forever until the process is stopped.
+ */
 export async function runNormalizerForever() {
 
   console.log("🧠 Normalizer started");
