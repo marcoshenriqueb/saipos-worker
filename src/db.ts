@@ -189,3 +189,49 @@ export async function insertAddress(args: {
 
   return r.rows[0].id;
 }
+
+export async function pickRawForNormalize(limit: number) {
+  const r = await pool.query(
+    `
+    with picked as (
+      select id
+      from orders_raw
+      where normalized = false
+      order by received_at asc
+      limit $1
+      for update skip locked
+    )
+    select *
+    from orders_raw
+    where id in (select id from picked)
+    `,
+    [limit]
+  );
+
+  return r.rows;
+}
+
+export async function markRawNormalized(id: number) {
+  await pool.query(
+    `
+    update orders_raw
+    set normalized = true,
+        normalized_at = now()
+    where id = $1
+    `,
+    [id]
+  );
+}
+
+export async function markRawNormalizeError(id: number, error: string) {
+  await pool.query(
+    `
+    update orders_raw
+    set normalized = false
+    where id = $1
+    `,
+    [id]
+  );
+
+  console.error("normalize error:", id, error);
+}
