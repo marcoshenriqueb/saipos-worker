@@ -66,3 +66,7 @@ add column if not exists order_mode text;
 
 create index if not exists ix_orders_customer
 on orders(customer_id);
+
+create unique index if not exists ux_customers_document
+on customers (provider, document_number)
+where document_number is not null;

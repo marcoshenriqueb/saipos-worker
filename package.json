@@ -7,7 +7,9 @@
     "dev": "ts-node src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "lint": "node -e \"console.log('ok')\""
+    "lint": "node -e \"console.log('ok')\"",
+    "db:migrate": "./scripts/migrate.sh",
+    "db:psql": "docker compose exec db psql -U postgres -d saipos"
   },
   "keywords": [],
   "author": "",
