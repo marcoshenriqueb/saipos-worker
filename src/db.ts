@@ -110,3 +110,82 @@ export async function upsertOrdersRaw(args: {
     [args.provider, args.store_id, args.order_id, args.status, args.received_at, JSON.stringify(args.payload)]
   );
 }
+
+export async function upsertCustomer(args: {
+  provider: string;
+  external_id: string | null;
+  name: string | null;
+  phone: string | null;
+  document_number: string | null;
+}): Promise<number> {
+  const r = await pool.query(
+    `
+    insert into customers (
+      provider,
+      external_id,
+      name,
+      phone,
+      document_number
+    )
+    values ($1,$2,$3,$4,$5)
+
+    on conflict (provider, external_id)
+    do update set
+      name = excluded.name,
+      phone = excluded.phone,
+      document_number = excluded.document_number,
+      updated_at = now()
+
+    returning id
+    `,
+    [
+      args.provider,
+      args.external_id,
+      args.name,
+      args.phone,
+      args.document_number,
+    ]
+  );
+
+  return r.rows[0].id;
+}
+
+export async function insertAddress(args: {
+  customer_id: number;
+  raw_address: any;
+}): Promise<number | null> {
+
+  const a = args.raw_address;
+  if (!a) return null;
+
+  const r = await pool.query(
+    `
+    insert into addresses (
+      customer_id,
+      street,
+      number,
+      district,
+      city,
+      state,
+      postal_code,
+      country,
+      raw_address
+    )
+    values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    returning id
+    `,
+    [
+      args.customer_id,
+      a.street_name ?? null,
+      a.street_number ?? null,
+      a.district ?? null,
+      a.city ?? null,
+      a.state ?? null,
+      a.postal_code ?? null,
+      a.country ?? null,
+      JSON.stringify(a)
+    ]
+  );
+
+  return r.rows[0].id;
+}
