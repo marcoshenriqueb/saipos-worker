@@ -28,21 +28,63 @@ export async function runNormalizerForever() {
         const first = Array.isArray(payload) ? payload[0] : payload;
 
         // ---------- CUSTOMER ----------
-        const customer = first?.customer ?? {};
+        // Saipos sandbox currently returns `customer` as a string (name).
+        // In other environments it may become an object.
+        const customerRaw: any = first?.customer ?? null;
 
-        const customerId = await upsertCustomer({
-          provider: raw.provider,
-          external_id: customer?.id ?? null,
-          name: customer?.name ?? null,
-          phone: customer?.phone ?? null,
-          document_number: customer?.document_number ?? null,
-        });
+        const customerObj =
+          customerRaw && typeof customerRaw === "object" && !Array.isArray(customerRaw)
+            ? customerRaw
+            : null;
+
+        const customerName =
+          typeof customerRaw === "string"
+            ? customerRaw
+            : (customerObj?.name ?? customerObj?.customer_name ?? null);
+
+        const customerExternalId =
+          customerObj?.id ?? customerObj?.external_id ?? customerObj?.externalId ?? null;
+
+        const customerPhone =
+          customerObj?.phone ?? customerObj?.cellphone ?? customerObj?.mobile ?? null;
+
+        const notesText: string = typeof first?.notes === "string" ? first.notes : "";
+        const cpfMatch = notesText.match(/CPF:\s*([0-9.\-]+)/i);
+        const cpfDigits = cpfMatch?.[1] ? cpfMatch[1].replace(/\D/g, "") : null;
+
+        const customerDocument =
+          customerObj?.document_number ??
+          customerObj?.documentNumber ??
+          customerObj?.cpf ??
+          cpfDigits ??
+          null;
+
+        // Only create/upsert a customer if we have at least one meaningful field.
+        const hasCustomerData = Boolean(
+          (customerName && customerName.trim()) ||
+          (customerPhone && String(customerPhone).trim()) ||
+          (customerDocument && String(customerDocument).trim()) ||
+          (customerExternalId && String(customerExternalId).trim())
+        );
+
+        const customerId = hasCustomerData
+          ? await upsertCustomer({
+              provider: raw.provider,
+              external_id: customerExternalId,
+              name: customerName,
+              phone: customerPhone,
+              document_number: customerDocument,
+            })
+          : null;
 
         // ---------- ADDRESS ----------
-        const addressId = await insertAddress({
-          customer_id: customerId,
-          raw_address: first?.delivery_address ?? null,
-        });
+        // Only insert address if we have a customer_id to relate it to.
+        const addressId = customerId
+          ? await insertAddress({
+              customer_id: customerId,
+              raw_address: first?.delivery_address ?? null,
+            })
+          : null;
 
         // ---------- ORDER ----------
         await upsertOrderNormalized({
@@ -57,7 +99,7 @@ export async function runNormalizerForever() {
           address_id: addressId,
           order_mode: first?.order_method?.mode ?? null,
 
-          customer_name: first?.customer ?? null,
+          customer_name: customerName ?? null,
           notes: first?.notes ?? null,
           total_value: Number(first?.totalValue ?? 0),
           total_items_value: Number(first?.totalItems ?? 0),
