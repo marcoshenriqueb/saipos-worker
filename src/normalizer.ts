@@ -59,9 +59,10 @@ export async function runNormalizerForever() {
           cpfDigits ??
           null;
 
-        // Only create/upsert a customer if we have at least one meaningful field.
+        // Only create/upsert a customer if we have a stable identifier field:
+        // external_id OR phone OR document_number.
+        // If we only have a name, we keep it on the order but do NOT create a customer record.
         const hasCustomerData = Boolean(
-          (customerName && customerName.trim()) ||
           (customerPhone && String(customerPhone).trim()) ||
           (customerDocument && String(customerDocument).trim()) ||
           (customerExternalId && String(customerExternalId).trim())
