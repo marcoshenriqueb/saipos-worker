@@ -1,5 +1,3 @@
-
-
 import { Pool } from "pg";
 import { config } from "./config";
 
@@ -132,23 +130,80 @@ export async function upsertCustomer(args: {
   phone: string | null;
   document_number: string | null;
 }): Promise<number> {
-  // If external_id is null, ON CONFLICT won't trigger; in that case this will insert duplicates.
-  // That is acceptable for now; later we can add a fallback key (document_number) in code.
-  const r = await pool.query(
+  const provider = args.provider;
+  const externalId = args.external_id ? String(args.external_id).trim() : null;
+  const name = args.name ? String(args.name).trim() : null;
+
+  // Normalize common BR formats to digits-only
+  const phone = args.phone ? String(args.phone).replace(/\D/g, "") : null;
+  const documentNumber = args.document_number ? String(args.document_number).replace(/\D/g, "") : null;
+
+  // If we have a CPF/document number, use it as the primary id (unique constraint exists).
+  if (documentNumber) {
+    const r = await pool.query(
+      `
+      insert into customers (provider, document_number, external_id, name, phone, updated_at)
+      values ($1, $2, $3, $4, $5, now())
+      on conflict (document_number)
+      do update set
+        provider = excluded.provider,
+        external_id = coalesce(excluded.external_id, customers.external_id),
+        name = coalesce(excluded.name, customers.name),
+        phone = coalesce(excluded.phone, customers.phone),
+        updated_at = now()
+      returning id
+      `,
+      [provider, documentNumber, externalId, name, phone]
+    );
+    return Number(r.rows[0].id);
+  }
+
+  // No CPF: try to reuse an existing customer by provider + external_id OR provider + phone
+  if (externalId || phone) {
+    const existing = await pool.query(
+      `
+      select id
+      from customers
+      where provider = $1
+        and (
+          ($2 is not null and external_id = $2) or
+          ($3 is not null and phone = $3)
+        )
+      limit 1
+      `,
+      [provider, externalId, phone]
+    );
+
+    if (existing.rowCount && existing.rows[0]?.id) {
+      const id = Number(existing.rows[0].id);
+      // Best-effort enrich
+      await pool.query(
+        `
+        update customers
+        set
+          external_id = coalesce($2, external_id),
+          name = coalesce($3, name),
+          phone = coalesce($4, phone),
+          updated_at = now()
+        where id = $1
+        `,
+        [id, externalId, name, phone]
+      );
+      return id;
+    }
+  }
+
+  // Insert new (no guaranteed dedupe key available)
+  const ins = await pool.query(
     `
-    insert into customers (provider, external_id, name, phone, document_number)
-    values ($1,$2,$3,$4,$5)
-    on conflict (provider, external_id)
-    do update set
-      name = excluded.name,
-      phone = excluded.phone,
-      document_number = excluded.document_number,
-      updated_at = now()
+    insert into customers (provider, external_id, name, phone, updated_at)
+    values ($1, $2, $3, $4, now())
     returning id
     `,
-    [args.provider, args.external_id, args.name, args.phone, args.document_number]
+    [provider, externalId, name, phone]
   );
-  return Number(r.rows[0].id);
+
+  return Number(ins.rows[0].id);
 }
 
 /**
