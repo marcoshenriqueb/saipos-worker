@@ -144,9 +144,8 @@ export async function upsertCustomer(args: {
       `
       insert into customers (provider, document_number, external_id, name, phone, updated_at)
       values ($1, $2, $3, $4, $5, now())
-      on conflict on constraint ux_customers_document
+      on conflict (provider, document_number)
       do update set
-        provider = excluded.provider,
         external_id = coalesce(excluded.external_id, customers.external_id),
         name = coalesce(excluded.name, customers.name),
         phone = coalesce(excluded.phone, customers.phone),
