@@ -268,6 +268,7 @@ export async function pickRawForNormalize(limit: number): Promise<OrdersRawRow[]
       select id
       from orders_raw
       where normalized = false
+      and (next_retry_at is null or next_retry_at <= now())
       order by received_at asc
       limit $1
       for update skip locked
@@ -285,8 +286,12 @@ export async function markRawNormalized(id: number): Promise<void> {
   await pool.query(
     `
     update orders_raw
-    set normalized = true,
-        normalized_at = now()
+    set
+      normalized = true,
+      normalized_at = now(),
+      processing_started_at = null,
+      last_error = null,
+      next_retry_at = null
     where id = $1
     `,
     [id]
@@ -294,7 +299,19 @@ export async function markRawNormalized(id: number): Promise<void> {
 }
 
 export async function markRawNormalizeError(id: number, error: string): Promise<void> {
-  // keep normalized=false so it can be retried later; just log for now
+  await pool.query(
+    `
+    update orders_raw
+    set
+      attempts = attempts + 1,
+      last_error = $2,
+      next_retry_at = now() + interval '5 minutes',
+      processing_started_at = null
+    where id = $1
+    `,
+    [id, error]
+  );
+
   console.error("normalize error:", id, error);
 }
 
