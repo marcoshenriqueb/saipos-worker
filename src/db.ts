@@ -453,14 +453,6 @@ export async function replaceOrderItems(args: {
       line, name, integration_code, quantity, unit_price, deleted, raw_item
     )
     values ${placeholders.join(",")}
-    on conflict (provider, store_id, order_id, line)
-    do update set
-      name = excluded.name,
-      integration_code = excluded.integration_code,
-      quantity = excluded.quantity,
-      unit_price = excluded.unit_price,
-      deleted = excluded.deleted,
-      raw_item = excluded.raw_item
     `,
     values
   );
