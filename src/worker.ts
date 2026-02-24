@@ -76,12 +76,24 @@ export async function runWorkerForever(): Promise<void> {
       });
 
       // 3) indexa itens por (id_store,id_sale)
+      // /v1/sales_items pode retornar:
+      // - linhas de item (formato antigo), ou
+      // - vendas com array `items` dentro (formato atual observado).
       const itemsBySale = new Map<string, any[]>();
       for (const it of items) {
         const idStore = String((it as any)?.id_store ?? "");
         const idSale = String((it as any)?.id_sale ?? "");
         if (!idStore || !idSale) continue;
+
         const key = `${idStore}:${idSale}`;
+
+        // Caso o registro já venha agrupado por venda
+        if (Array.isArray((it as any)?.items)) {
+          itemsBySale.set(key, (it as any).items);
+          continue;
+        }
+
+        // Fallback: registro já é um item individual
         const arr = itemsBySale.get(key);
         if (arr) arr.push(it);
         else itemsBySale.set(key, [it]);
