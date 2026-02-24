@@ -415,7 +415,7 @@ export async function upsertOrderV2(args: {
   items_count: number | null;
 
   customer_id: number | null;
-  customer_name: string | null;
+  partner_sale_source: string | null;
 }): Promise<number> {
   const r = await pool.query(
     `
@@ -428,7 +428,8 @@ export async function upsertOrderV2(args: {
       notes, discount_reason, increase_reason,
       total_amount, total_discount, total_increase, total_amount_items,
       items_count,
-      customer_id, customer_name,
+      customer_id,
+      partner_sale_source,
       received_at, updated_at
     )
     values (
@@ -440,7 +441,8 @@ export async function upsertOrderV2(args: {
       $12,$13,$14,
       $15,$16,$17,$18,
       $19,
-      $20,$21,
+      $20,
+      $21,
       $22, now()
     )
     on conflict (provider, store_id, order_id)
@@ -462,7 +464,8 @@ export async function upsertOrderV2(args: {
       total_amount_items = excluded.total_amount_items,
       items_count = excluded.items_count,
       customer_id = excluded.customer_id,
-      customer_name = excluded.customer_name,
+      customer_name = null,
+      partner_sale_source = excluded.partner_sale_source,
       received_at = excluded.received_at,
       updated_at = now()
     returning id
@@ -488,7 +491,7 @@ export async function upsertOrderV2(args: {
       args.total_amount_items,
       args.items_count,
       args.customer_id,
-      args.customer_name,
+      args.partner_sale_source,
       args.received_at,
     ]
   );

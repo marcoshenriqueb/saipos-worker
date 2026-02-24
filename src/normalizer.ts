@@ -117,7 +117,6 @@ async function normalizeOne(row: {
   const cust = sale.customer ?? null;
 
   let customerId: number | null = null;
-  let customerNameFallback: string | null = null;
 
   if (cust && typeof cust === "object") {
     const name = str(cust.name);
@@ -135,9 +134,6 @@ async function normalizeOne(row: {
         phone,
         document_number: doc,
       });
-    } else {
-      // only name: keep it on order (no customer row)
-      customerNameFallback = name;
     }
   }
 
@@ -171,7 +167,7 @@ async function normalizeOne(row: {
     items_count: sale.total_items != null ? Number(sale.total_items) : getSaleItems(sale).length,
 
     customer_id: customerId,
-    customer_name: customerId ? null : customerNameFallback,
+    partner_sale_source: str(sale.partner_sale?.desc_partner_sale),
   });
 
   // --- delivery (order_deliveries) ---
