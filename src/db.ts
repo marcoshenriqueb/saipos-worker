@@ -464,7 +464,6 @@ export async function upsertOrderV2(args: {
       total_amount_items = excluded.total_amount_items,
       items_count = excluded.items_count,
       customer_id = excluded.customer_id,
-      customer_name = null,
       partner_sale_source = excluded.partner_sale_source,
       received_at = excluded.received_at,
       updated_at = now()
