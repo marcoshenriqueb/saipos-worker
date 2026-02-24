@@ -76,12 +76,6 @@ export const config = {
      * Data API token (Bearer)
      */
     dataToken: must("SAIPOS_DATA_TOKEN"),
-
-    // Legacy Order API config kept for now (not used in Data API ingest)
-    baseUrl: must("SAIPOS_BASE_URL"),
-    authUrl: must("SAIPOS_AUTH_URL"),
-    idPartner: must("SAIPOS_ID_PARTNER"),
-    secret: must("SAIPOS_SECRET"),
   },
 
 
@@ -105,6 +99,16 @@ export const config = {
      */
     daysBack: num("INGEST_DAYS_BACK", 2),
 
+  },
+
+  /**
+   * Normalizer configuration
+   */
+  normalize: {
+    /**
+     * Max raw orders processed per loop
+     */
+    batchSize: num("NORMALIZER_BATCH_SIZE", 100),
   },
 
 };

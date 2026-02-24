@@ -16,7 +16,7 @@ function authHeader(): string {
 }
 
 /**
- * GET /v1/sales
+ * GET /v1/search_sales
  * Doc: consultar-vendas (Layout definições vendas)
  */
 export async function sales(params: {
@@ -26,7 +26,7 @@ export async function sales(params: {
   p_limit?: number;
   p_offset?: number;
 }): Promise<any> {
-  const url = `${baseUrl()}/v1/sales`;
+  const url = `${baseUrl()}/v1/search_sales`;
 
   const resp = await axios.get(url, {
     params: {

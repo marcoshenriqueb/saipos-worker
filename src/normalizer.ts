@@ -205,7 +205,7 @@ export async function runNormalizerForever(): Promise<void> {
 
   while (true) {
     try {
-      const batch = await pickRawForNormalize(config.batchSize);
+      const batch = await pickRawForNormalize(config.normalize.batchSize);
 
       if (batch.length === 0) {
         await sleep(config.pollIntervalMs);
