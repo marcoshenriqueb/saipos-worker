@@ -583,7 +583,11 @@ export async function replaceOrderItemsAndChoicesV2(args: {
       ]
     );
 
-    const choices = Array.isArray(it.choice_items) ? it.choice_items : [];
+    const choices = Array.isArray(it.choice_items)
+      ? it.choice_items
+      : Array.isArray(it.choices)
+        ? it.choices
+        : [];
     for (let cidx = 0; cidx < choices.length; cidx++) {
       const ch = choices[cidx] ?? {};
       const choiceLine = cidx + 1;
