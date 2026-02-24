@@ -10,7 +10,7 @@ create table if not exists orders_raw (
   provider text not null default 'saipos',
   store_id text not null,
   order_id text not null,
-  status text,
+  canceled boolean,
   received_at timestamptz not null default now(),
   payload jsonb not null,
 
