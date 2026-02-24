@@ -23,13 +23,38 @@ export async function upsertOrdersRaw(args: {
 }): Promise<void> {
   await pool.query(
     `
-    insert into orders_raw (provider, store_id, order_id, canceled, received_at, payload)
-    values ($1,$2,$3,$4,$5,$6::jsonb)
+    insert into orders_raw (provider, store_id, order_id, canceled, received_at, payload, payload_hash)
+    values ($1,$2,$3,$4,$5,$6::jsonb, md5(($6::jsonb)::text))
     on conflict (provider, store_id, order_id)
     do update set
       canceled = excluded.canceled,
       received_at = excluded.received_at,
-      payload = excluded.payload
+      payload = excluded.payload,
+      payload_hash = excluded.payload_hash,
+      normalized = case
+        when orders_raw.payload_hash is distinct from excluded.payload_hash then false
+        else orders_raw.normalized
+      end,
+      normalized_at = case
+        when orders_raw.payload_hash is distinct from excluded.payload_hash then null
+        else orders_raw.normalized_at
+      end,
+      attempts = case
+        when orders_raw.payload_hash is distinct from excluded.payload_hash then 0
+        else orders_raw.attempts
+      end,
+      last_error = case
+        when orders_raw.payload_hash is distinct from excluded.payload_hash then null
+        else orders_raw.last_error
+      end,
+      next_retry_at = case
+        when orders_raw.payload_hash is distinct from excluded.payload_hash then null
+        else orders_raw.next_retry_at
+      end,
+      processing_started_at = case
+        when orders_raw.payload_hash is distinct from excluded.payload_hash then null
+        else orders_raw.processing_started_at
+      end
     `,
     [args.provider, args.store_id, args.order_id, args.canceled, args.received_at, JSON.stringify(args.payload)]
   );
