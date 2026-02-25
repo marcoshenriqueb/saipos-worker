@@ -60,6 +60,47 @@ export async function upsertOrdersRaw(args: {
   );
 }
 
+export async function upsertSaleStatusHistory(args: {
+  provider: string;
+  id_sale_status_history: string;
+  store_id: string;
+  order_id: string;
+  status_name: string;
+  status_created_at_source: string;
+  received_at: string;
+  raw_payload: any;
+}): Promise<void> {
+  await pool.query(
+    `
+    insert into sale_status_histories (
+      provider, id_sale_status_history, store_id, order_id,
+      status_name, status_created_at_source,
+      received_at, raw_payload, updated_at
+    )
+    values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb, now())
+    on conflict (provider, id_sale_status_history)
+    do update set
+      store_id = excluded.store_id,
+      order_id = excluded.order_id,
+      status_name = excluded.status_name,
+      status_created_at_source = excluded.status_created_at_source,
+      received_at = excluded.received_at,
+      raw_payload = excluded.raw_payload,
+      updated_at = now()
+    `,
+    [
+      args.provider,
+      args.id_sale_status_history,
+      args.store_id,
+      args.order_id,
+      args.status_name,
+      args.status_created_at_source,
+      args.received_at,
+      JSON.stringify(args.raw_payload ?? {}),
+    ]
+  );
+}
+
 /**
  * customers
  */

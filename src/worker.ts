@@ -1,6 +1,6 @@
 import { config } from "./config";
-import { salesAll, salesItemsAll } from "./saipos/dataApi";
-import { upsertOrdersRaw } from "./db";
+import { salesAll, salesItemsAll, salesStatusHistoriesAll } from "./saipos/dataApi";
+import { upsertOrdersRaw, upsertSaleStatusHistory } from "./db";
 
 /**
  * Sleep helper
@@ -40,6 +40,10 @@ function computeWindowUtc(daysBack: number): { start: Date; end: Date } {
   return { start, end };
 }
 
+function str(v: any): string {
+  return v == null ? "" : String(v).trim();
+}
+
 export async function runWorkerForever(): Promise<void> {
   console.log("🚀 Worker (Data API ingest) iniciado.");
 
@@ -75,7 +79,61 @@ export async function runWorkerForever(): Promise<void> {
         maxPages: 400,
       });
 
-      // 3) indexa itens por (id_store,id_sale)
+      // 3) histórico de status (estrutura: venda + array histories)
+      const statusSales = await salesStatusHistoriesAll({
+        p_date_column_filter: "created_at",
+        p_filter_date_start,
+        p_filter_date_end,
+        p_limit: 300,
+        maxPages: 200,
+      });
+
+      const receivedAtIso = new Date().toISOString();
+      let statusUpserted = 0;
+      let statusSkipped = 0;
+
+      for (const sale of statusSales) {
+        const idStore = str((sale as any)?.id_store);
+        const idSale = str((sale as any)?.id_sale);
+        const histories = Array.isArray((sale as any)?.histories)
+          ? (sale as any).histories
+          : Array.isArray((sale as any)?.sale_status_histories)
+            ? (sale as any).sale_status_histories
+            : [];
+
+        if (!idStore || !idSale || histories.length === 0) continue;
+
+        for (const h of histories) {
+          const idSaleStatusHistory = str(
+            (h as any)?.id_sale_status_history ?? (h as any)?.id
+          );
+          const statusName = str(
+            (h as any)?.desc_sale_status ??
+            (h as any)?.status_name ??
+            (h as any)?.status
+          );
+          const statusCreatedAtSource = str((h as any)?.created_at);
+
+          if (!idSaleStatusHistory || !statusName || !statusCreatedAtSource) {
+            statusSkipped++;
+            continue;
+          }
+
+          await upsertSaleStatusHistory({
+            provider: "saipos",
+            id_sale_status_history: idSaleStatusHistory,
+            store_id: idStore,
+            order_id: idSale,
+            status_name: statusName,
+            status_created_at_source: statusCreatedAtSource,
+            received_at: receivedAtIso,
+            raw_payload: h,
+          });
+          statusUpserted++;
+        }
+      }
+
+      // 4) indexa itens por (id_store,id_sale)
       // /v1/sales_items pode retornar:
       // - linhas de item (formato antigo), ou
       // - vendas com array `items` dentro (formato atual observado).
@@ -100,11 +158,10 @@ export async function runWorkerForever(): Promise<void> {
       }
 
       console.log(
-        `📦 Window shift_date UTC: ${p_filter_date_start} -> ${p_filter_date_end} | sales=${sales.length} | items=${items.length}`
+        `📦 Window shift_date UTC: ${p_filter_date_start} -> ${p_filter_date_end} | sales=${sales.length} | items=${items.length} | status_sales=${statusSales.length} | status_upserted=${statusUpserted} | status_skipped=${statusSkipped}`
       );
 
-      // 4) salva em orders_raw com payload enriquecido
-      const receivedAtIso = new Date().toISOString();
+      // 5) salva em orders_raw com payload enriquecido
       let upserted = 0;
 
       for (const sale of sales) {
