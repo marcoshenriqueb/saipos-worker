@@ -591,10 +591,10 @@ export async function replaceOrderItemsAndChoicesV2(args: {
       `
       insert into order_items (
         provider, store_id, order_id,
-        line, name, integration_code, quantity, unit_price, deleted, raw_item,
+        line, name, integration_code, id_store_item, quantity, unit_price, deleted, raw_item,
         updated_at
       )
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb, now())
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb, now())
       `,
       [
         args.provider,
@@ -603,6 +603,7 @@ export async function replaceOrderItemsAndChoicesV2(args: {
         line,
         it.desc_sale_item ?? it.name ?? null,
         it.integration_code ?? null,
+        it.id_store_item != null ? String(it.id_store_item) : null,
         it.quantity != null ? Number(it.quantity) : null,
         it.unit_price != null ? Number(it.unit_price) : null,
         it.deleted ?? null,
@@ -624,11 +625,11 @@ export async function replaceOrderItemsAndChoicesV2(args: {
         insert into order_item_choices (
           provider, store_id, order_id,
           item_line, choice_line,
-          name, quantity, unit_price,
+          name, quantity, unit_price, id_store_choice_item,
           raw_choice,
           updated_at
         )
-        values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb, now())
+        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb, now())
         `,
         [
           args.provider,
@@ -636,9 +637,16 @@ export async function replaceOrderItemsAndChoicesV2(args: {
           args.order_id,
           line,
           choiceLine,
-          ch.desc_sale_item ?? ch.name ?? null,
-          ch.quantity != null ? Number(ch.quantity) : null,
-          ch.unit_price != null ? Number(ch.unit_price) : null,
+          ch.desc_sale_item_choice ?? ch.desc_sale_item ?? ch.name ?? null,
+          ch.quantity != null ? Number(ch.quantity) : 1,
+          ch.unit_price != null
+            ? Number(ch.unit_price)
+            : ch.aditional_price != null
+              ? Number(ch.aditional_price)
+              : ch.additional_price != null
+                ? Number(ch.additional_price)
+                : null,
+          ch.id_store_choice_item != null ? String(ch.id_store_choice_item) : null,
           JSON.stringify(ch),
         ]
       );
