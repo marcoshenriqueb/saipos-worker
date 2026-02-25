@@ -108,6 +108,7 @@ export async function runWorkerForever(): Promise<void> {
             (h as any)?.id_sale_status_history ?? (h as any)?.id
           );
           const statusName = str(
+            (h as any)?.desc_store_sale_status ??
             (h as any)?.desc_sale_status ??
             (h as any)?.status_name ??
             (h as any)?.status
