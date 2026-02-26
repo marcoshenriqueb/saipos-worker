@@ -9,31 +9,7 @@ import {
   replaceOrderPaymentsV2,
   replaceOrderItemsAndChoicesV2,
 } from "./db";
-
-/**
- * Sleep helper.
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function digitsOnly(v: any): string | null {
-  if (v == null) return null;
-  const s = String(v).replace(/\D/g, "");
-  return s ? s : null;
-}
-
-function str(v: any): string | null {
-  if (v == null) return null;
-  const s = String(v).trim();
-  return s ? s : null;
-}
-
-function num(v: any): number | null {
-  if (v == null || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
+import { digitsOnlyOrNull, numberOrNull, sleep, trimOrNull } from "./utils/common";
 
 function ynBool(v: any): boolean | null {
   if (v == null) return null;
@@ -91,10 +67,10 @@ function getSaleItems(sale: any): any[] {
 function shouldCreateCustomer(c: any): boolean {
   if (!c) return false;
 
-  const externalId = str(c.id_customer ?? c.external_id);
-  const email = str(c.email);
-  const phone = digitsOnly(c.phone);
-  const doc = digitsOnly(c.cpf_cnpj ?? c.document_number);
+  const externalId = trimOrNull(c.id_customer ?? c.external_id);
+  const email = trimOrNull(c.email);
+  const phone = digitsOnlyOrNull(c.phone);
+  const doc = digitsOnlyOrNull(c.cpf_cnpj ?? c.document_number);
 
   return Boolean(externalId || email || phone || doc);
 }
@@ -119,11 +95,11 @@ async function normalizeOne(row: {
   let customerId: number | null = null;
 
   if (cust && typeof cust === "object") {
-    const name = str(cust.name);
-    const externalId = str(cust.id_customer ?? cust.external_id);
-    const email = str(cust.email);
-    const phone = digitsOnly(cust.phone);
-    const doc = digitsOnly(cust.cpf_cnpj ?? cust.document_number);
+    const name = trimOrNull(cust.name);
+    const externalId = trimOrNull(cust.id_customer ?? cust.external_id);
+    const email = trimOrNull(cust.email);
+    const phone = digitsOnlyOrNull(cust.phone);
+    const doc = digitsOnlyOrNull(cust.cpf_cnpj ?? cust.document_number);
 
     if (shouldCreateCustomer(cust)) {
       customerId = await upsertCustomerV2({
@@ -145,29 +121,29 @@ async function normalizeOne(row: {
     received_at: row.received_at,
 
     id_sale_type: sale.id_sale_type != null ? Number(sale.id_sale_type) : null,
-    shift_date: str(sale.shift_date),
-    created_at_source: str(sale.created_at),
-    updated_at_source: str(sale.updated_at),
-    sale_number: str(sale.sale_number),
-    desc_sale: str(sale.desc_sale),
+    shift_date: trimOrNull(sale.shift_date),
+    created_at_source: trimOrNull(sale.created_at),
+    updated_at_source: trimOrNull(sale.updated_at),
+    sale_number: trimOrNull(sale.sale_number),
+    desc_sale: trimOrNull(sale.desc_sale),
 
     canceled: ynBool(sale.canceled) ?? row.canceled,
     count_canceled_items: sale.count_canceled_items != null ? Number(sale.count_canceled_items) : null,
 
-    notes: str(sale.notes),
-    discount_reason: str(sale.discount_reason),
-    increase_reason: str(sale.increase_reason),
+    notes: trimOrNull(sale.notes),
+    discount_reason: trimOrNull(sale.discount_reason),
+    increase_reason: trimOrNull(sale.increase_reason),
 
-    total_amount: num(sale.total_amount),
-    total_discount: num(sale.total_discount),
-    total_increase: num(sale.total_increase),
-    total_amount_items: num(sale.total_amount_items),
+    total_amount: numberOrNull(sale.total_amount),
+    total_discount: numberOrNull(sale.total_discount),
+    total_increase: numberOrNull(sale.total_increase),
+    total_amount_items: numberOrNull(sale.total_amount_items),
 
     // items_count can be informed or derived
     items_count: sale.total_items != null ? Number(sale.total_items) : getSaleItems(sale).length,
 
     customer_id: customerId,
-    partner_sale_source: str(sale.partner_sale?.desc_partner_sale),
+    partner_sale_source: trimOrNull(sale.partner_sale?.desc_partner_sale),
   });
 
   // --- delivery (order_deliveries) ---

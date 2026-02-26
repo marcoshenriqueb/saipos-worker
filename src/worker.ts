@@ -1,28 +1,8 @@
 import { config } from "./config";
 import { salesAll, salesItemsAll, salesStatusHistoriesAll } from "./saipos/dataApi";
 import { upsertOrdersRaw, upsertSaleStatusHistory } from "./db";
+import { fmtUtc, sleep, trimOrEmpty } from "./utils/common";
 
-/**
- * Sleep helper
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-/**
- * Format "YYYY-MM-DD HH:mm:ss" em UTC (compatível com exemplo da Saipos)
- */
-function fmtUtc(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return (
-    `${d.getUTCFullYear()}-` +
-    `${pad(d.getUTCMonth() + 1)}-` +
-    `${pad(d.getUTCDate())} ` +
-    `${pad(d.getUTCHours())}:` +
-    `${pad(d.getUTCMinutes())}:` +
-    `${pad(d.getUTCSeconds())}`
-  );
-}
 
 /**
  * Janela: pega últimos N dias, mas termina em "agora - 26h" por causa do delay da Data API.
@@ -38,10 +18,6 @@ function computeWindowUtc(daysBack: number): { start: Date; end: Date } {
   const start = new Date(end.getTime() - daysBack * 24 * 60 * 60 * 1000);
 
   return { start, end };
-}
-
-function str(v: any): string {
-  return v == null ? "" : String(v).trim();
 }
 
 export async function runWorkerForever(): Promise<void> {
@@ -93,8 +69,8 @@ export async function runWorkerForever(): Promise<void> {
       let statusSkipped = 0;
 
       for (const sale of statusSales) {
-        const idStore = str((sale as any)?.id_store);
-        const idSale = str((sale as any)?.id_sale);
+        const idStore = trimOrEmpty((sale as any)?.id_store);
+        const idSale = trimOrEmpty((sale as any)?.id_sale);
         const histories = Array.isArray((sale as any)?.histories)
           ? (sale as any).histories
           : Array.isArray((sale as any)?.sale_status_histories)
@@ -104,16 +80,16 @@ export async function runWorkerForever(): Promise<void> {
         if (!idStore || !idSale || histories.length === 0) continue;
 
         for (const h of histories) {
-          const idSaleStatusHistory = str(
+          const idSaleStatusHistory = trimOrEmpty(
             (h as any)?.id_sale_status_history ?? (h as any)?.id
           );
-          const statusName = str(
+          const statusName = trimOrEmpty(
             (h as any)?.desc_store_sale_status ??
             (h as any)?.desc_sale_status ??
             (h as any)?.status_name ??
             (h as any)?.status
           );
-          const statusCreatedAtSource = str((h as any)?.created_at);
+          const statusCreatedAtSource = trimOrEmpty((h as any)?.created_at);
 
           if (!idSaleStatusHistory || !statusName || !statusCreatedAtSource) {
             statusSkipped++;
