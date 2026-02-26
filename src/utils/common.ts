@@ -30,6 +30,17 @@ export function digitsOnlyOrNull(v: any): string | null {
   return s ? s : null;
 }
 
+export function customerPhoneOrNull(v: any): string | null {
+  if (Array.isArray(v)) {
+    for (const p of v) {
+      const normalized = digitsOnlyOrNull(p);
+      if (normalized) return normalized;
+    }
+    return null;
+  }
+  return digitsOnlyOrNull(v);
+}
+
 export function numberOrNull(v: any): number | null {
   if (v == null || v === "") return null;
   const n = Number(v);

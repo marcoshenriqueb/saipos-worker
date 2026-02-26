@@ -9,7 +9,7 @@ import {
   replaceOrderPaymentsV2,
   replaceOrderItemsAndChoicesV2,
 } from "./db";
-import { digitsOnlyOrNull, numberOrNull, sleep, trimOrNull } from "./utils/common";
+import { customerPhoneOrNull, digitsOnlyOrNull, numberOrNull, sleep, trimOrNull } from "./utils/common";
 
 function ynBool(v: any): boolean | null {
   if (v == null) return null;
@@ -69,7 +69,7 @@ function shouldCreateCustomer(c: any): boolean {
 
   const externalId = trimOrNull(c.id_customer ?? c.external_id);
   const email = trimOrNull(c.email);
-  const phone = digitsOnlyOrNull(c.phone);
+  const phone = customerPhoneOrNull(c.phone);
   const doc = digitsOnlyOrNull(c.cpf_cnpj ?? c.document_number);
 
   return Boolean(externalId || email || phone || doc);
@@ -98,7 +98,7 @@ async function normalizeOne(row: {
     const name = trimOrNull(cust.name);
     const externalId = trimOrNull(cust.id_customer ?? cust.external_id);
     const email = trimOrNull(cust.email);
-    const phone = digitsOnlyOrNull(cust.phone);
+    const phone = customerPhoneOrNull(cust.phone);
     const doc = digitsOnlyOrNull(cust.cpf_cnpj ?? cust.document_number);
 
     if (shouldCreateCustomer(cust)) {
