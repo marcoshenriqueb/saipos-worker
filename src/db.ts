@@ -352,77 +352,68 @@ export async function upsertCustomerV2(args: {
   const phone = digitsOnly(args.phone);
   const documentNumber = digitsOnly(args.document_number);
 
-  if (documentNumber) {
+  const findExistingId = async (): Promise<number | null> => {
     const r = await pool.query(
       `
-      insert into customers (provider, document_number, external_id, name, email, phone, updated_at)
+      select id
+      from customers
+      where provider = $1
+        and (
+          ($2 is not null and document_number = $2) or
+          ($3 is not null and phone = $3) or
+          ($4 is not null and email = $4) or
+          ($5 is not null and external_id = $5)
+        )
+      order by id
+      limit 1
+      `,
+      [provider, documentNumber, phone, email, externalId]
+    );
+    return r.rows[0]?.id ? Number(r.rows[0].id) : null;
+  };
+
+  // 1) Se já existe cliente por alguma chave única, reaproveita e faz update best-effort.
+  const existingId = await findExistingId();
+  if (existingId) {
+    try {
+      await pool.query(
+        `
+        update customers
+        set
+          external_id = coalesce(external_id, $2),
+          name = coalesce(name, $3),
+          email = coalesce(email, $4),
+          phone = coalesce(phone, $5),
+          document_number = coalesce(document_number, $6),
+          updated_at = now()
+        where id = $1
+        `,
+        [existingId, externalId, name, email, phone, documentNumber]
+      );
+    } catch (e: any) {
+      // Se algum enriquecimento colidir em outra unique, mantemos vínculo com o cliente encontrado.
+      if (e?.code !== "23505") throw e;
+    }
+    return existingId;
+  }
+
+  // 2) Inserção de novo cliente; fallback defensivo para corrida/choque de unique.
+  try {
+    const r = await pool.query(
+      `
+      insert into customers (provider, external_id, name, email, phone, document_number, updated_at)
       values ($1,$2,$3,$4,$5,$6, now())
-      on conflict (provider, document_number) where document_number is not null and document_number <> ''
-      do update set
-        external_id = coalesce(excluded.external_id, customers.external_id),
-        name = coalesce(excluded.name, customers.name),
-        email = coalesce(excluded.email, customers.email),
-        phone = coalesce(excluded.phone, customers.phone),
-        updated_at = now()
       returning id
       `,
-      [provider, documentNumber, externalId, name, email, phone]
+      [provider, externalId, name, email, phone, documentNumber]
     );
     return Number(r.rows[0].id);
+  } catch (e: any) {
+    if (e?.code !== "23505") throw e;
+    const concurrentId = await findExistingId();
+    if (concurrentId) return concurrentId;
+    throw e;
   }
-
-  if (email) {
-    const r = await pool.query(
-      `
-      insert into customers (provider, email, external_id, name, phone, updated_at)
-      values ($1,$2,$3,$4,$5, now())
-      on conflict (provider, email) where email is not null and email <> ''
-      do update set
-        external_id = coalesce(excluded.external_id, customers.external_id),
-        name = coalesce(excluded.name, customers.name),
-        phone = coalesce(excluded.phone, customers.phone),
-        updated_at = now()
-      returning id
-      `,
-      [provider, email, externalId, name, phone]
-    );
-    return Number(r.rows[0].id);
-  }
-
-  if (phone) {
-    const r = await pool.query(
-      `
-      insert into customers (provider, phone, external_id, name, email, updated_at)
-      values ($1,$2,$3,$4,$5, now())
-      on conflict (provider, phone) where phone is not null and phone <> ''
-      do update set
-        external_id = coalesce(excluded.external_id, customers.external_id),
-        name = coalesce(excluded.name, customers.name),
-        email = coalesce(excluded.email, customers.email),
-        updated_at = now()
-      returning id
-      `,
-      [provider, phone, externalId, name, email]
-    );
-    return Number(r.rows[0].id);
-  }
-
-  const r = await pool.query(
-    `
-    insert into customers (provider, external_id, name, email, phone, updated_at)
-    values ($1,$2,$3,$4,$5, now())
-    on conflict (provider, external_id) where external_id is not null and external_id <> ''
-    do update set
-      name = coalesce(excluded.name, customers.name),
-      email = coalesce(excluded.email, customers.email),
-      phone = coalesce(excluded.phone, customers.phone),
-      updated_at = now()
-    returning id
-    `,
-    [provider, externalId, name, email, phone]
-  );
-
-  return Number(r.rows[0].id);
 }
 
 /**
