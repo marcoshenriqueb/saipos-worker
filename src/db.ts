@@ -359,10 +359,10 @@ export async function upsertCustomerV2(args: {
       from customers
       where provider = $1
         and (
-          ($2 is not null and document_number = $2) or
-          ($3 is not null and phone = $3) or
-          ($4 is not null and email = $4) or
-          ($5 is not null and external_id = $5)
+          ($2::text is not null and document_number = $2::text) or
+          ($3::text is not null and phone = $3::text) or
+          ($4::text is not null and email = $4::text) or
+          ($5::text is not null and external_id = $5::text)
         )
       order by id
       limit 1
