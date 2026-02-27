@@ -1,6 +1,6 @@
 import { config } from "./config";
 import { salesAll, salesItemsAll, salesStatusHistoriesAll } from "./saipos/dataApi";
-import { upsertOrdersRaw, upsertSaleStatusHistory } from "./db";
+import { upsertOrdersRaw, upsertSaleStatusHistory, upsertSaleType } from "./db";
 import { fmtUtc, sleep, trimOrEmpty } from "./utils/common";
 
 
@@ -19,6 +19,13 @@ function computeWindowUtc(daysBack: number): { start: Date; end: Date } {
 
   return { start, end };
 }
+
+const SALE_TYPE_FALLBACK_NAME: Record<number, string> = {
+  1: "Entrega",
+  2: "Retirada no balcão / Takeout",
+  3: "Salão (mesas e comandas)",
+  4: "Ficha / Senha",
+};
 
 export async function runWorkerForever(): Promise<void> {
   console.log("🚀 Worker (Data API ingest) iniciado.");
@@ -138,7 +145,34 @@ export async function runWorkerForever(): Promise<void> {
         `📦 Window shift_date UTC: ${p_filter_date_start} -> ${p_filter_date_end} | sales=${sales.length} | items=${items.length} | status_sales=${statusSales.length} | status_upserted=${statusUpserted} | status_skipped=${statusSkipped}`
       );
 
-      // 5) salva em orders_raw com payload enriquecido
+      // 5) seed/upsert de tipos de venda (id + nome)
+      const saleTypesById = new Map<number, string>();
+      for (const sale of sales) {
+        const idRaw = (sale as any)?.id_sale_type;
+        if (idRaw == null || idRaw === "") continue;
+
+        const saleTypeId = Number(idRaw);
+        if (!Number.isFinite(saleTypeId)) continue;
+
+        const fromPayload = trimOrEmpty(
+          (sale as any)?.desc_sale_type ??
+          (sale as any)?.desc_store_sale_type ??
+          (sale as any)?.sale_type_name
+        );
+        const name = fromPayload || SALE_TYPE_FALLBACK_NAME[saleTypeId];
+        if (!name) continue;
+        saleTypesById.set(saleTypeId, name);
+      }
+
+      for (const [saleTypeId, name] of saleTypesById.entries()) {
+        await upsertSaleType({
+          provider: "saipos",
+          sale_type_id: saleTypeId,
+          name,
+        });
+      }
+
+      // 6) salva em orders_raw com payload enriquecido
       let upserted = 0;
 
       for (const sale of sales) {

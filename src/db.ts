@@ -60,6 +60,24 @@ export async function upsertOrdersRaw(args: {
   );
 }
 
+export async function upsertSaleType(args: {
+  provider: string;
+  sale_type_id: number;
+  name: string;
+}): Promise<void> {
+  await pool.query(
+    `
+    insert into sale_types (provider, sale_type_id, name, updated_at)
+    values ($1,$2,$3, now())
+    on conflict (provider, sale_type_id)
+    do update set
+      name = excluded.name,
+      updated_at = now()
+    `,
+    [args.provider, args.sale_type_id, args.name]
+  );
+}
+
 export async function upsertSaleStatusHistory(args: {
   provider: string;
   id_sale_status_history: string;
