@@ -11,8 +11,8 @@ import { fmtUtc, sleep, trimOrEmpty } from "./utils/common";
 function computeWindowUtc(daysBack: number): { start: Date; end: Date } {
   const now = new Date();
 
-  // Saipos Data API tem delay ~24h; usamos 26h para margem
-  const end = new Date(now.getTime() - 26 * 60 * 60 * 1000);
+  // Saipos Data API tem delay ~16h; usamos 17h para margem
+  const end = new Date(now.getTime() - 17 * 60 * 60 * 1000);
 
   // volta N dias a partir do end
   const start = new Date(end.getTime() - daysBack * 24 * 60 * 60 * 1000);
