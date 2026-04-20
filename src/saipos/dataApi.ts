@@ -1,5 +1,6 @@
 import axios from "axios";
 import { config } from "../config";
+import { sleep } from "../utils/common";
 
 /**
  * Saipos Data API client
@@ -15,6 +16,33 @@ function authHeader(): string {
   return `Bearer ${config.saipos.dataToken}`;
 }
 
+async function getWithRetry(url: string, params: Record<string, any>): Promise<any> {
+  const maxAttempts = 4;
+  let lastStatus = 0;
+  let lastData: any;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) await sleep(2 ** (attempt - 1) * 1000); // 1s, 2s, 4s
+
+    const resp = await axios.get(url, {
+      params,
+      headers: { Authorization: authHeader(), accept: "application/json" },
+      timeout: 30_000,
+      validateStatus: () => true,
+    });
+
+    lastStatus = resp.status;
+    lastData = resp.data;
+
+    if (resp.status < 500) {
+      if (resp.status >= 400) throw new Error(`DATA API HTTP ${resp.status}: ${JSON.stringify(resp.data).slice(0, 400)}`);
+      return resp.data;
+    }
+  }
+
+  throw new Error(`DATA API HTTP ${lastStatus}: ${JSON.stringify(lastData).slice(0, 400)}`);
+}
+
 /**
  * GET /v1/search_sales
  * Doc: consultar-vendas (Layout definições vendas)
@@ -26,27 +54,11 @@ export async function sales(params: {
   p_limit?: number;
   p_offset?: number;
 }): Promise<any> {
-  const url = `${baseUrl()}/v1/search_sales`;
-
-  const resp = await axios.get(url, {
-    params: {
-      ...params,
-      p_limit: params.p_limit ?? 300,
-      p_offset: params.p_offset ?? 0,
-    },
-    headers: {
-      Authorization: authHeader(),
-      accept: "application/json",
-    },
-    timeout: 30_000,
-    validateStatus: () => true,
+  return getWithRetry(`${baseUrl()}/v1/search_sales`, {
+    ...params,
+    p_limit: params.p_limit ?? 300,
+    p_offset: params.p_offset ?? 0,
   });
-
-  if (resp.status >= 400) {
-    throw new Error(`DATA API HTTP ${resp.status}: ${JSON.stringify(resp.data).slice(0, 400)}`);
-  }
-
-  return resp.data;
 }
 
 /**
@@ -104,27 +116,11 @@ export async function salesStatusHistories(params: {
   p_limit?: number;
   p_offset?: number;
 }): Promise<any> {
-  const url = `${baseUrl()}/v1/sales_status_histories`;
-
-  const resp = await axios.get(url, {
-    params: {
-      ...params,
-      p_limit: params.p_limit ?? 300,
-      p_offset: params.p_offset ?? 0,
-    },
-    headers: {
-      Authorization: authHeader(),
-      accept: "application/json",
-    },
-    timeout: 30_000,
-    validateStatus: () => true,
+  return getWithRetry(`${baseUrl()}/v1/sales_status_histories`, {
+    ...params,
+    p_limit: params.p_limit ?? 300,
+    p_offset: params.p_offset ?? 0,
   });
-
-  if (resp.status >= 400) {
-    throw new Error(`DATA API HTTP ${resp.status}: ${JSON.stringify(resp.data).slice(0, 400)}`);
-  }
-
-  return resp.data;
 }
 
 /**
@@ -182,27 +178,11 @@ export async function salesItems(params: {
   p_limit?: number;
   p_offset?: number;
 }): Promise<any> {
-  const url = `${baseUrl()}/v1/sales_items`;
-
-  const resp = await axios.get(url, {
-    params: {
-      ...params,
-      p_limit: params.p_limit ?? 300,
-      p_offset: params.p_offset ?? 0,
-    },
-    headers: {
-      Authorization: authHeader(),
-      accept: "application/json",
-    },
-    timeout: 30_000,
-    validateStatus: () => true,
+  return getWithRetry(`${baseUrl()}/v1/sales_items`, {
+    ...params,
+    p_limit: params.p_limit ?? 300,
+    p_offset: params.p_offset ?? 0,
   });
-
-  if (resp.status >= 400) {
-    throw new Error(`DATA API HTTP ${resp.status}: ${JSON.stringify(resp.data).slice(0, 400)}`);
-  }
-
-  return resp.data;
 }
 
 /**
