@@ -38,9 +38,9 @@ create table if not exists financial_transactions (
   created_at_source timestamptz,
   updated_at_source timestamptz,
 
-  paid text,
-  conciliated text,
-  recurring text,
+  paid boolean,
+  conciliated boolean,
+  recurring boolean,
 
   installment integer,
   total_installments integer,
@@ -64,17 +64,31 @@ create table if not exists financial_transactions (
 create unique index if not exists ux_financial_transactions
   on financial_transactions (provider, store_id, financial_transaction_id);
 
-create index if not exists ix_financial_transactions_dates
-  on financial_transactions (store_id, date, issuance_date, payment_date, updated_at_source);
+-- competência (regime de competência)
+create index if not exists ix_financial_transactions_date
+  on financial_transactions (store_id, date);
+
+-- caixa (regime de caixa)
+create index if not exists ix_financial_transactions_payment_date
+  on financial_transactions (store_id, payment_date);
+
+-- ingest incremental por updated_at
+create index if not exists ix_financial_transactions_updated_at_source
+  on financial_transactions (updated_at_source);
 
 create index if not exists ix_financial_transactions_category
   on financial_transactions (store_id, financial_category_desc);
+
+-- contas a pagar/receber em aberto: paid = false ou null
+create index if not exists ix_financial_transactions_unpaid
+  on financial_transactions (store_id, payment_date)
+  where paid is not true;
 
 create table if not exists financial_transaction_children (
   id bigserial primary key,
   financial_transaction_row_id bigint not null references financial_transactions(id) on delete cascade,
   idx integer not null,
-  paid text,
+  paid boolean,
   amount numeric,
   provider_trade_name text,
   transaction_desc text,

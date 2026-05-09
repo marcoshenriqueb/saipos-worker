@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { config } from "./config";
+import { numberOrNull } from "./utils/common";
 
 export const pool = new Pool({
   connectionString: config.databaseUrl,
@@ -393,21 +394,21 @@ export async function markFinancialRawNormalizeError(id: number, error: string):
   console.error("financial normalize error:", id, error);
 }
 
-function ynFlag(v: any): string | null {
+function ynToBool(v: any): boolean | null {
   if (v == null) return null;
+  if (typeof v === "boolean") return v;
   const s = String(v).trim().toUpperCase();
-  if (s === "Y" || s === "N") return s;
-  if (typeof v === "boolean") return v ? "Y" : "N";
+  if (s === "Y" || s === "S" || s === "TRUE" || s === "1") return true;
+  if (s === "N" || s === "FALSE" || s === "0") return false;
   return null;
 }
 
-function numOrNull(v: any): number | null {
-  if (v == null || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-export async function upsertFinancialTransaction(args: {
+/**
+ * Upsert pai + replace dos filhos numa transação só.
+ * Se qualquer passo falhar, faz rollback — evita estado inconsistente onde
+ * o pai diz children_count=N mas a tabela de filhos está vazia/parcial.
+ */
+export async function upsertFinancialTransactionWithChildren(args: {
   provider: string;
   store_id: string;
   financial_transaction_id: string;
@@ -429,127 +430,144 @@ export async function upsertFinancialTransaction(args: {
   payment_method_desc: string | null;
   transaction_desc: string | null;
   financial_category_desc: string | null;
-  children_count: number;
   raw_payload: any;
+  children: any[];
 }): Promise<number> {
-  const r = await pool.query(
-    `
-    insert into financial_transactions (
-      provider, store_id, financial_transaction_id,
-      date, issuance_date, payment_date,
-      created_at_source, updated_at_source,
-      paid, conciliated, recurring,
-      installment, total_installments,
-      amount, notes, provider_trade_name,
-      bank_account_desc, payment_method_desc,
-      transaction_desc, financial_category_desc,
-      children_count,
-      raw_payload,
-      received_at, updated_at
-    )
-    values (
-      $1,$2,$3,
-      $4,$5,$6,
-      $7,$8,
-      $9,$10,$11,
-      $12,$13,
-      $14,$15,$16,
-      $17,$18,
-      $19,$20,
-      $21,
-      $22::jsonb,
-      $23, now()
-    )
-    on conflict (provider, store_id, financial_transaction_id)
-    do update set
-      date = excluded.date,
-      issuance_date = excluded.issuance_date,
-      payment_date = excluded.payment_date,
-      created_at_source = excluded.created_at_source,
-      updated_at_source = excluded.updated_at_source,
-      paid = excluded.paid,
-      conciliated = excluded.conciliated,
-      recurring = excluded.recurring,
-      installment = excluded.installment,
-      total_installments = excluded.total_installments,
-      amount = excluded.amount,
-      notes = excluded.notes,
-      provider_trade_name = excluded.provider_trade_name,
-      bank_account_desc = excluded.bank_account_desc,
-      payment_method_desc = excluded.payment_method_desc,
-      transaction_desc = excluded.transaction_desc,
-      financial_category_desc = excluded.financial_category_desc,
-      children_count = excluded.children_count,
-      raw_payload = excluded.raw_payload,
-      received_at = excluded.received_at,
-      updated_at = now()
-    returning id
-    `,
-    [
-      args.provider,
-      args.store_id,
-      args.financial_transaction_id,
-      args.date,
-      args.issuance_date,
-      args.payment_date,
-      args.created_at_source,
-      args.updated_at_source,
-      ynFlag(args.paid),
-      ynFlag(args.conciliated),
-      ynFlag(args.recurring),
-      args.installment,
-      args.total_installments,
-      numOrNull(args.amount),
-      args.notes,
-      args.provider_trade_name,
-      args.bank_account_desc,
-      args.payment_method_desc,
-      args.transaction_desc,
-      args.financial_category_desc,
-      args.children_count,
-      JSON.stringify(args.raw_payload ?? {}),
-      args.received_at,
-    ]
-  );
+  const children = Array.isArray(args.children) ? args.children : [];
+  const client = await pool.connect();
 
-  return Number(r.rows[0].id);
-}
+  try {
+    await client.query("BEGIN");
 
-export async function replaceFinancialTransactionChildren(financialTransactionRowId: number, children: any[]): Promise<void> {
-  await pool.query(`delete from financial_transaction_children where financial_transaction_row_id=$1`, [
-    financialTransactionRowId,
-  ]);
-
-  if (!Array.isArray(children) || children.length === 0) return;
-
-  for (let i = 0; i < children.length; i++) {
-    const child = children[i] ?? {};
-    await pool.query(
+    const r = await client.query(
       `
-      insert into financial_transaction_children (
-        financial_transaction_row_id,
-        idx,
-        paid,
-        amount,
-        provider_trade_name,
-        transaction_desc,
-        financial_category_desc,
-        raw_child,
-        updated_at
+      insert into financial_transactions (
+        provider, store_id, financial_transaction_id,
+        date, issuance_date, payment_date,
+        created_at_source, updated_at_source,
+        paid, conciliated, recurring,
+        installment, total_installments,
+        amount, notes, provider_trade_name,
+        bank_account_desc, payment_method_desc,
+        transaction_desc, financial_category_desc,
+        children_count,
+        raw_payload,
+        received_at, updated_at
       )
-      values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb, now())
+      values (
+        $1,$2,$3,
+        $4,$5,$6,
+        $7,$8,
+        $9,$10,$11,
+        $12,$13,
+        $14,$15,$16,
+        $17,$18,
+        $19,$20,
+        $21,
+        $22::jsonb,
+        $23, now()
+      )
+      on conflict (provider, store_id, financial_transaction_id)
+      do update set
+        date = excluded.date,
+        issuance_date = excluded.issuance_date,
+        payment_date = excluded.payment_date,
+        created_at_source = excluded.created_at_source,
+        updated_at_source = excluded.updated_at_source,
+        paid = excluded.paid,
+        conciliated = excluded.conciliated,
+        recurring = excluded.recurring,
+        installment = excluded.installment,
+        total_installments = excluded.total_installments,
+        amount = excluded.amount,
+        notes = excluded.notes,
+        provider_trade_name = excluded.provider_trade_name,
+        bank_account_desc = excluded.bank_account_desc,
+        payment_method_desc = excluded.payment_method_desc,
+        transaction_desc = excluded.transaction_desc,
+        financial_category_desc = excluded.financial_category_desc,
+        children_count = excluded.children_count,
+        raw_payload = excluded.raw_payload,
+        received_at = excluded.received_at,
+        updated_at = now()
+      returning id
       `,
       [
-        financialTransactionRowId,
-        i,
-        ynFlag(child.paid),
-        numOrNull(child.amount),
-        child.provider_trade_name ?? null,
-        child.desc_store_fin_transaction ?? null,
-        child.desc_store_category_financial ?? null,
-        JSON.stringify(child),
+        args.provider,
+        args.store_id,
+        args.financial_transaction_id,
+        args.date,
+        args.issuance_date,
+        args.payment_date,
+        args.created_at_source,
+        args.updated_at_source,
+        ynToBool(args.paid),
+        ynToBool(args.conciliated),
+        ynToBool(args.recurring),
+        args.installment,
+        args.total_installments,
+        numberOrNull(args.amount),
+        args.notes,
+        args.provider_trade_name,
+        args.bank_account_desc,
+        args.payment_method_desc,
+        args.transaction_desc,
+        args.financial_category_desc,
+        children.length,
+        JSON.stringify(args.raw_payload ?? {}),
+        args.received_at,
       ]
     );
+
+    const financialTransactionRowId = Number(r.rows[0].id);
+
+    await client.query(
+      `delete from financial_transaction_children where financial_transaction_row_id=$1`,
+      [financialTransactionRowId]
+    );
+
+    if (children.length > 0) {
+      const values: any[] = [];
+      const placeholders: string[] = [];
+      let p = 1;
+
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i] ?? {};
+        placeholders.push(
+          `($${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++}::jsonb, now())`
+        );
+        values.push(
+          financialTransactionRowId,
+          i,
+          ynToBool(child.paid),
+          numberOrNull(child.amount),
+          child.provider_trade_name ?? null,
+          child.desc_store_fin_transaction ?? null,
+          child.desc_store_category_financial ?? null,
+          JSON.stringify(child)
+        );
+      }
+
+      await client.query(
+        `
+        insert into financial_transaction_children (
+          financial_transaction_row_id, idx, paid, amount,
+          provider_trade_name, transaction_desc, financial_category_desc,
+          raw_child, updated_at
+        )
+        values ${placeholders.join(",")}
+        `,
+        values
+      );
+    }
+
+    await client.query("COMMIT");
+    return financialTransactionRowId;
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
   }
 }
 

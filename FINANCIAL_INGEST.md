@@ -23,3 +23,6 @@ To enable the financial pipeline:
 - Saipos financial endpoint only supports windows up to 15 days
 - raw payload is preserved in `financial_transactions_raw`
 - normalized data is split into `financial_transactions` and `financial_transaction_children`
+- pai + filhos são gravados numa transação única (rollback em caso de erro)
+- `paid`, `conciliated`, `recurring` são `boolean` (conversão Y/N -> true/false; valores desconhecidos viram null)
+- normalizer respeita `FINANCIAL_WORKER_MODE` — se `idle`, dorme sem consultar a tabela (seguro pra deploy antes da migration)

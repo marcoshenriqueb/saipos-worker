@@ -3,8 +3,7 @@ import {
   markFinancialRawNormalizeError,
   markFinancialRawNormalized,
   pickFinancialRawForNormalize,
-  replaceFinancialTransactionChildren,
-  upsertFinancialTransaction,
+  upsertFinancialTransactionWithChildren,
 } from "./db";
 import { numberOrNull, sleep, trimOrNull } from "./utils/common";
 
@@ -29,7 +28,7 @@ async function normalizeOne(row: {
 
   const children = Array.isArray(tx.children) ? tx.children : [];
 
-  const financialTransactionRowId = await upsertFinancialTransaction({
+  await upsertFinancialTransactionWithChildren({
     provider: row.provider,
     store_id: row.store_id,
     financial_transaction_id: row.financial_transaction_id,
@@ -51,19 +50,28 @@ async function normalizeOne(row: {
     payment_method_desc: trimOrNull(tx.desc_store_payment_method),
     transaction_desc: trimOrNull(tx.desc_store_fin_transaction),
     financial_category_desc: trimOrNull(tx.desc_store_category_financial),
-    children_count: children.length,
     raw_payload: tx,
+    children,
   });
 
-  await replaceFinancialTransactionChildren(financialTransactionRowId, children);
   await markFinancialRawNormalized(row.id);
 }
 
 export async function runFinancialNormalizerForever(): Promise<void> {
-  console.log("🧾 Financial normalizer iniciado.");
+  console.log(
+    `🧾 Financial normalizer iniciado (mode=${config.financialWorkerMode}).`
+  );
 
   while (true) {
     try {
+      // Mesmo gate do ingest: se o pipeline financeiro está desligado, o
+      // normalizer também dorme. Evita queries em loop quando a tabela ainda
+      // não existe (deploy do código antes da migration).
+      if (config.financialWorkerMode !== "ingest") {
+        await sleep(config.pollIntervalMs);
+        continue;
+      }
+
       const batch = await pickFinancialRawForNormalize(config.financialNormalize.batchSize);
 
       if (batch.length === 0) {
