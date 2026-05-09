@@ -50,6 +50,16 @@ export const config = {
    */
   workerMode: process.env.WORKER_MODE || "idle",
 
+  /**
+   * Financial worker mode selector.
+   *
+   * idle   → financial ingest disabled (safe mode)
+   * ingest → fetch financial transactions from Saipos Data API
+   *
+   * Default keeps the current sales pipeline unchanged.
+   */
+  financialWorkerMode: process.env.FINANCIAL_WORKER_MODE || "idle",
+
 
   /**
    * How often the worker runs (milliseconds)
@@ -109,6 +119,36 @@ export const config = {
      * Max raw orders processed per loop
      */
     batchSize: num("NORMALIZER_BATCH_SIZE", 100),
+  },
+
+  /**
+   * Financial ingest configuration
+   */
+  financialIngest: {
+    /**
+     * Days back for financial transactions lookup.
+     * Saipos financial endpoint supports at most 15 days per request.
+     */
+    daysBack: num("FINANCIAL_INGEST_DAYS_BACK", 7),
+
+    /**
+     * Date column used for incremental fetches.
+     * Recommended default: updated_at
+     */
+    dateColumnFilter:
+      process.env.FINANCIAL_INGEST_DATE_COLUMN_FILTER || "updated_at",
+
+    /**
+     * Lookback hours to re-fetch recent updates safely.
+     */
+    lookbackHours: num("FINANCIAL_INGEST_LOOKBACK_HOURS", 26),
+  },
+
+  /**
+   * Financial normalizer configuration
+   */
+  financialNormalize: {
+    batchSize: num("FINANCIAL_NORMALIZER_BATCH_SIZE", 100),
   },
 
 };
