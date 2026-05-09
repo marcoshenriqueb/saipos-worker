@@ -5,7 +5,7 @@ import {
   pickFinancialRawForNormalize,
   upsertFinancialTransactionWithChildren,
 } from "./db";
-import { numberOrNull, sleep, trimOrNull } from "./utils/common";
+import { numberOrNull, parseSourceDate, sleep, trimOrNull } from "./utils/common";
 
 function getFinancialTransactionFromPayload(payload: any): any {
   if (!payload) return null;
@@ -33,11 +33,11 @@ async function normalizeOne(row: {
     store_id: row.store_id,
     financial_transaction_id: row.financial_transaction_id,
     received_at: row.received_at,
-    date: trimOrNull(tx.date),
-    issuance_date: trimOrNull(tx.issuance_date),
-    payment_date: trimOrNull(tx.payment_date),
-    created_at_source: trimOrNull(tx.created_at),
-    updated_at_source: trimOrNull(tx.updated_at),
+    date: parseSourceDate(tx.date),
+    issuance_date: parseSourceDate(tx.issuance_date),
+    payment_date: parseSourceDate(tx.payment_date),
+    created_at_source: parseSourceDate(tx.created_at),
+    updated_at_source: parseSourceDate(tx.updated_at),
     paid: tx.paid,
     conciliated: tx.conciliated,
     recurring: tx.recurring,
@@ -50,7 +50,6 @@ async function normalizeOne(row: {
     payment_method_desc: trimOrNull(tx.desc_store_payment_method),
     transaction_desc: trimOrNull(tx.desc_store_fin_transaction),
     financial_category_desc: trimOrNull(tx.desc_store_category_financial),
-    raw_payload: tx,
     children,
   });
 

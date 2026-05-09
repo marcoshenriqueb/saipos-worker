@@ -54,7 +54,7 @@ create table if not exists financial_transactions (
   financial_category_desc text,
   children_count integer not null default 0,
 
-  raw_payload jsonb,
+  -- raw payload preservado em financial_transactions_raw.payload (single source of truth)
 
   received_at timestamptz not null default now(),
   created_at timestamptz not null default now(),

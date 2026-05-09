@@ -430,7 +430,6 @@ export async function upsertFinancialTransactionWithChildren(args: {
   payment_method_desc: string | null;
   transaction_desc: string | null;
   financial_category_desc: string | null;
-  raw_payload: any;
   children: any[];
 }): Promise<number> {
   const children = Array.isArray(args.children) ? args.children : [];
@@ -451,7 +450,6 @@ export async function upsertFinancialTransactionWithChildren(args: {
         bank_account_desc, payment_method_desc,
         transaction_desc, financial_category_desc,
         children_count,
-        raw_payload,
         received_at, updated_at
       )
       values (
@@ -464,8 +462,7 @@ export async function upsertFinancialTransactionWithChildren(args: {
         $17,$18,
         $19,$20,
         $21,
-        $22::jsonb,
-        $23, now()
+        $22, now()
       )
       on conflict (provider, store_id, financial_transaction_id)
       do update set
@@ -487,7 +484,6 @@ export async function upsertFinancialTransactionWithChildren(args: {
         transaction_desc = excluded.transaction_desc,
         financial_category_desc = excluded.financial_category_desc,
         children_count = excluded.children_count,
-        raw_payload = excluded.raw_payload,
         received_at = excluded.received_at,
         updated_at = now()
       returning id
@@ -514,7 +510,6 @@ export async function upsertFinancialTransactionWithChildren(args: {
         args.transaction_desc,
         args.financial_category_desc,
         children.length,
-        JSON.stringify(args.raw_payload ?? {}),
         args.received_at,
       ]
     );
