@@ -43,6 +43,17 @@ async function getWithRetry(url: string, params: Record<string, any>): Promise<a
   throw new Error(`DATA API HTTP ${lastStatus}: ${JSON.stringify(lastData).slice(0, 400)}`);
 }
 
+
+function extractRows(raw: any): any[] {
+  return Array.isArray(raw)
+    ? raw
+    : Array.isArray(raw?.data)
+      ? raw.data
+      : Array.isArray(raw?.items)
+        ? raw.items
+        : [];
+}
+
 /**
  * GET /v1/search_sales
  * Doc: consultar-vendas (Layout definições vendas)
@@ -88,13 +99,7 @@ export async function salesAll(params: {
       p_offset: offset,
     });
 
-    const rows: any[] = Array.isArray(raw)
-      ? raw
-      : Array.isArray(raw?.data)
-        ? raw.data
-        : Array.isArray(raw?.items)
-          ? raw.items
-          : [];
+    const rows = extractRows(raw);
 
     if (!rows.length) break;
 
@@ -150,13 +155,7 @@ export async function salesStatusHistoriesAll(params: {
       p_offset: offset,
     });
 
-    const rows: any[] = Array.isArray(raw)
-      ? raw
-      : Array.isArray(raw?.data)
-        ? raw.data
-        : Array.isArray(raw?.items)
-          ? raw.items
-          : [];
+    const rows = extractRows(raw);
 
     if (!rows.length) break;
 
@@ -212,14 +211,73 @@ export async function salesItemsAll(params: {
       p_offset: offset,
     });
 
-    const rows: any[] = Array.isArray(raw)
-      ? raw
-      : Array.isArray(raw?.data)
-        ? raw.data
-        : Array.isArray(raw?.items)
-          ? raw.items
-          : [];
+    const rows = extractRows(raw);
 
+    if (!rows.length) break;
+
+    out.push(...rows);
+    if (rows.length < limit) break;
+  }
+
+  return out;
+}
+
+
+/**
+ * GET /v1/search_financial_transactions
+ */
+export async function financialTransactions(params: {
+  p_date_column_filter: "date" | "created_at" | "updated_at" | "payment_date" | "issuance_date" | string;
+  p_filter_date_start: string;
+  p_filter_date_end: string;
+  p_limit?: number;
+  p_offset?: number;
+}): Promise<any> {
+  return getWithRetry(`${baseUrl()}/v1/search_financial_transactions`, {
+    ...params,
+    p_limit: params.p_limit ?? 300,
+    p_offset: params.p_offset ?? 0,
+  });
+}
+
+/**
+ * Automatic pagination for /v1/search_financial_transactions
+ * Saipos rejects intervals greater than 15 days.
+ */
+export async function financialTransactionsAll(params: {
+  p_date_column_filter: "date" | "created_at" | "updated_at" | "payment_date" | "issuance_date" | string;
+  p_filter_date_start: string;
+  p_filter_date_end: string;
+  p_limit?: number;
+  maxPages?: number;
+}): Promise<any[]> {
+  const limit = params.p_limit ?? 300;
+  const maxPages = params.maxPages ?? 50;
+
+  const start = new Date(params.p_filter_date_start.replace(" ", "T") + "Z");
+  const end = new Date(params.p_filter_date_end.replace(" ", "T") + "Z");
+  const maxWindowMs = 15 * 24 * 60 * 60 * 1000;
+
+  if (Number.isFinite(start.getTime()) && Number.isFinite(end.getTime())) {
+    if (end.getTime() - start.getTime() > maxWindowMs) {
+      throw new Error("financialTransactionsAll: interval greater than 15 days is not supported by Saipos");
+    }
+  }
+
+  const out: any[] = [];
+
+  for (let page = 0; page < maxPages; page++) {
+    const offset = page * limit;
+
+    const raw = await financialTransactions({
+      p_date_column_filter: params.p_date_column_filter,
+      p_filter_date_start: params.p_filter_date_start,
+      p_filter_date_end: params.p_filter_date_end,
+      p_limit: limit,
+      p_offset: offset,
+    });
+
+    const rows = extractRows(raw);
     if (!rows.length) break;
 
     out.push(...rows);

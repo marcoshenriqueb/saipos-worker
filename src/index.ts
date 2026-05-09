@@ -1,6 +1,8 @@
 import { pingDb } from "./db";
 import { runWorkerForever } from "./worker";
 import { runNormalizerForever } from "./normalizer";
+import { runFinancialWorkerForever } from "./financialWorker";
+import { runFinancialNormalizerForever } from "./financialNormalizer";
 
 /**
  * Application entrypoint. Performs a DB health-check then starts the
@@ -11,8 +13,14 @@ async function main() {
   console.log("🚀 Worker iniciado.");
   runWorkerForever();
 
+  console.log("💰 Financial worker iniciado.");
+  runFinancialWorkerForever();
+
   console.log("🧱 Normalizer iniciado.");
   runNormalizerForever();
+
+  console.log("🧾 Financial normalizer iniciado.");
+  runFinancialNormalizerForever();
 
 }
 

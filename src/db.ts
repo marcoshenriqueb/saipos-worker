@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { config } from "./config";
+import { numberOrNull } from "./utils/common";
 
 export const pool = new Pool({
   connectionString: config.databaseUrl,
@@ -270,6 +271,299 @@ export async function markRawNormalizeError(id: number, error: string): Promise<
   );
 
   console.error("normalize error:", id, error);
+}
+
+
+// =========================
+// Financial transactions raw + normalized
+// =========================
+
+export async function upsertFinancialTransactionRaw(args: {
+  provider: string;
+  store_id: string;
+  financial_transaction_id: string;
+  received_at: string;
+  payload: any;
+}): Promise<void> {
+  await pool.query(
+    `
+    insert into financial_transactions_raw (
+      provider, store_id, financial_transaction_id, received_at, payload, payload_hash
+    )
+    values ($1,$2,$3,$4,$5::jsonb, md5(($5::jsonb)::text))
+    on conflict (provider, store_id, financial_transaction_id)
+    do update set
+      received_at = excluded.received_at,
+      payload = excluded.payload,
+      payload_hash = excluded.payload_hash,
+      normalized = case
+        when financial_transactions_raw.payload_hash is distinct from excluded.payload_hash then false
+        else financial_transactions_raw.normalized
+      end,
+      normalized_at = case
+        when financial_transactions_raw.payload_hash is distinct from excluded.payload_hash then null
+        else financial_transactions_raw.normalized_at
+      end,
+      attempts = case
+        when financial_transactions_raw.payload_hash is distinct from excluded.payload_hash then 0
+        else financial_transactions_raw.attempts
+      end,
+      last_error = case
+        when financial_transactions_raw.payload_hash is distinct from excluded.payload_hash then null
+        else financial_transactions_raw.last_error
+      end,
+      next_retry_at = case
+        when financial_transactions_raw.payload_hash is distinct from excluded.payload_hash then null
+        else financial_transactions_raw.next_retry_at
+      end,
+      processing_started_at = case
+        when financial_transactions_raw.payload_hash is distinct from excluded.payload_hash then null
+        else financial_transactions_raw.processing_started_at
+      end
+    `,
+    [
+      args.provider,
+      args.store_id,
+      args.financial_transaction_id,
+      args.received_at,
+      JSON.stringify(args.payload),
+    ]
+  );
+}
+
+export type FinancialTransactionsRawRow = {
+  id: number;
+  provider: string;
+  store_id: string;
+  financial_transaction_id: string;
+  received_at: string;
+  payload: any;
+};
+
+export async function pickFinancialRawForNormalize(limit: number): Promise<FinancialTransactionsRawRow[]> {
+  const r = await pool.query(
+    `
+    with picked as (
+      select id
+      from financial_transactions_raw
+      where normalized = false
+      and (next_retry_at is null or next_retry_at <= now())
+      order by received_at asc
+      limit $1
+      for update skip locked
+    )
+    select r.id, r.provider, r.store_id, r.financial_transaction_id, r.received_at, r.payload
+    from financial_transactions_raw r
+    join picked p on p.id = r.id
+    `,
+    [limit]
+  );
+  return r.rows as FinancialTransactionsRawRow[];
+}
+
+export async function markFinancialRawNormalized(id: number): Promise<void> {
+  await pool.query(
+    `
+    update financial_transactions_raw
+    set
+      normalized = true,
+      normalized_at = now(),
+      processing_started_at = null,
+      last_error = null,
+      next_retry_at = null
+    where id = $1
+    `,
+    [id]
+  );
+}
+
+export async function markFinancialRawNormalizeError(id: number, error: string): Promise<void> {
+  await pool.query(
+    `
+    update financial_transactions_raw
+    set
+      attempts = attempts + 1,
+      last_error = $2,
+      next_retry_at = now() + interval '5 minutes',
+      processing_started_at = null
+    where id = $1
+    `,
+    [id, error]
+  );
+
+  console.error("financial normalize error:", id, error);
+}
+
+function ynToBool(v: any): boolean | null {
+  if (v == null) return null;
+  if (typeof v === "boolean") return v;
+  const s = String(v).trim().toUpperCase();
+  if (s === "Y" || s === "S" || s === "TRUE" || s === "1") return true;
+  if (s === "N" || s === "FALSE" || s === "0") return false;
+  return null;
+}
+
+/**
+ * Upsert pai + replace dos filhos numa transação só.
+ * Se qualquer passo falhar, faz rollback — evita estado inconsistente onde
+ * o pai diz children_count=N mas a tabela de filhos está vazia/parcial.
+ */
+export async function upsertFinancialTransactionWithChildren(args: {
+  provider: string;
+  store_id: string;
+  financial_transaction_id: string;
+  received_at: string;
+  date: string | null;
+  issuance_date: string | null;
+  payment_date: string | null;
+  created_at_source: string | null;
+  updated_at_source: string | null;
+  paid: any;
+  conciliated: any;
+  recurring: any;
+  installment: number | null;
+  total_installments: number | null;
+  amount: number | null;
+  notes: string | null;
+  provider_trade_name: string | null;
+  bank_account_desc: string | null;
+  payment_method_desc: string | null;
+  transaction_desc: string | null;
+  financial_category_desc: string | null;
+  children: any[];
+}): Promise<number> {
+  const children = Array.isArray(args.children) ? args.children : [];
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const r = await client.query(
+      `
+      insert into financial_transactions (
+        provider, store_id, financial_transaction_id,
+        date, issuance_date, payment_date,
+        created_at_source, updated_at_source,
+        paid, conciliated, recurring,
+        installment, total_installments,
+        amount, notes, provider_trade_name,
+        bank_account_desc, payment_method_desc,
+        transaction_desc, financial_category_desc,
+        children_count,
+        received_at, updated_at
+      )
+      values (
+        $1,$2,$3,
+        $4,$5,$6,
+        $7,$8,
+        $9,$10,$11,
+        $12,$13,
+        $14,$15,$16,
+        $17,$18,
+        $19,$20,
+        $21,
+        $22, now()
+      )
+      on conflict (provider, store_id, financial_transaction_id)
+      do update set
+        date = excluded.date,
+        issuance_date = excluded.issuance_date,
+        payment_date = excluded.payment_date,
+        created_at_source = excluded.created_at_source,
+        updated_at_source = excluded.updated_at_source,
+        paid = excluded.paid,
+        conciliated = excluded.conciliated,
+        recurring = excluded.recurring,
+        installment = excluded.installment,
+        total_installments = excluded.total_installments,
+        amount = excluded.amount,
+        notes = excluded.notes,
+        provider_trade_name = excluded.provider_trade_name,
+        bank_account_desc = excluded.bank_account_desc,
+        payment_method_desc = excluded.payment_method_desc,
+        transaction_desc = excluded.transaction_desc,
+        financial_category_desc = excluded.financial_category_desc,
+        children_count = excluded.children_count,
+        received_at = excluded.received_at,
+        updated_at = now()
+      returning id
+      `,
+      [
+        args.provider,
+        args.store_id,
+        args.financial_transaction_id,
+        args.date,
+        args.issuance_date,
+        args.payment_date,
+        args.created_at_source,
+        args.updated_at_source,
+        ynToBool(args.paid),
+        ynToBool(args.conciliated),
+        ynToBool(args.recurring),
+        args.installment,
+        args.total_installments,
+        numberOrNull(args.amount),
+        args.notes,
+        args.provider_trade_name,
+        args.bank_account_desc,
+        args.payment_method_desc,
+        args.transaction_desc,
+        args.financial_category_desc,
+        children.length,
+        args.received_at,
+      ]
+    );
+
+    const financialTransactionRowId = Number(r.rows[0].id);
+
+    await client.query(
+      `delete from financial_transaction_children where financial_transaction_row_id=$1`,
+      [financialTransactionRowId]
+    );
+
+    if (children.length > 0) {
+      const values: any[] = [];
+      const placeholders: string[] = [];
+      let p = 1;
+
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i] ?? {};
+        placeholders.push(
+          `($${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++}::jsonb, now())`
+        );
+        values.push(
+          financialTransactionRowId,
+          i,
+          ynToBool(child.paid),
+          numberOrNull(child.amount),
+          child.provider_trade_name ?? null,
+          child.desc_store_fin_transaction ?? null,
+          child.desc_store_category_financial ?? null,
+          JSON.stringify(child)
+        );
+      }
+
+      await client.query(
+        `
+        insert into financial_transaction_children (
+          financial_transaction_row_id, idx, paid, amount,
+          provider_trade_name, transaction_desc, financial_category_desc,
+          raw_child, updated_at
+        )
+        values ${placeholders.join(",")}
+        `,
+        values
+      );
+    }
+
+    await client.query("COMMIT");
+    return financialTransactionRowId;
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 /**

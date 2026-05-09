@@ -57,3 +57,25 @@ export function parseDateAtUtcMidnight(s: string): Date {
 export function toDateOnlyUtc(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
+
+/**
+ * Parse defensivo para colunas timestamptz/date que vêm da Saipos Data API.
+ * Aceita ISO 8601 (date ou datetime, com ou sem timezone) e retorna a string
+ * pronta pra Postgres parsear. Para qualquer outro formato (ou string vazia),
+ * retorna null em vez de deixar o Postgres explodir e o registro entrar em
+ * retry eterno.
+ */
+export function parseSourceDate(v: any): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+
+  // YYYY-MM-DD ou YYYY-MM-DD[T| ]HH:MM[:SS[.fff]] [Z|±HH:MM|±HHMM]
+  const isoLike = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+  if (!isoLike.test(s)) return null;
+
+  const ms = Date.parse(s);
+  if (!Number.isFinite(ms)) return null;
+
+  return s;
+}
