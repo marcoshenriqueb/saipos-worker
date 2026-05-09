@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "ts-node src/index.ts",
     "backfill:orders-raw": "ts-node src/backfillOrdersRaw.ts",
+    "backfill:financial-raw": "ts-node src/backfillFinancialTransactionsRaw.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "lint": "node -e \"console.log('ok')\"",

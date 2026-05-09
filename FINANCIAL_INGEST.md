@@ -18,6 +18,27 @@ To enable the financial pipeline:
 2. set `FINANCIAL_WORKER_MODE=ingest`
 3. restart the worker
 
+## Backfill histórico
+
+Script one-shot pra trazer dados antigos:
+
+```bash
+BACKFILL_FIN_START_DATE=2026-01-01 \
+BACKFILL_FIN_END_DATE=2026-05-09 \
+npm run backfill:financial-raw
+```
+
+Envs:
+- `BACKFILL_FIN_START_DATE` (YYYY-MM-DD, inclusive) — default: `2026-01-01`
+- `BACKFILL_FIN_END_DATE` (YYYY-MM-DD, exclusivo) — default: hoje
+- `BACKFILL_FIN_WINDOW_DAYS` — default 15, **máx 15** (limite da Saipos)
+- `BACKFILL_FIN_DATE_COLUMN_FILTER` — default `date` (competência)
+- `BACKFILL_FIN_SLEEP_MS` — default 400 (entre janelas)
+- `BACKFILL_FIN_MAX_RETRIES` / `BACKFILL_FIN_RETRY_SLEEP_MS` — retry em 5xx/timeout
+- `BACKFILL_FIN_ONLY_STORE_IDS` — csv pra filtrar lojas específicas
+
+O backfill grava em `financial_transactions_raw` via upsert. O normalizer cuida do resto **se `FINANCIAL_WORKER_MODE=ingest`**.
+
 ## Notes
 
 - Saipos financial endpoint only supports windows up to 15 days
