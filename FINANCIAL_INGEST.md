@@ -3,10 +3,20 @@
 ## New envs
 
 - `FINANCIAL_WORKER_MODE=idle|ingest`
-- `FINANCIAL_INGEST_DAYS_BACK=7`
-- `FINANCIAL_INGEST_DATE_COLUMN_FILTER=updated_at`
-- `FINANCIAL_INGEST_LOOKBACK_HOURS=26`
+- `FINANCIAL_INGEST_DAYS_BACK=7` — pass `updated_at`
+- `FINANCIAL_INGEST_LOOKBACK_HOURS=26` — pass `updated_at`
+- `FINANCIAL_INGEST_DATE_DAYS_BACK=8` — pass `date`
+- `FINANCIAL_INGEST_DATE_DAYS_FORWARD=6` — pass `date`
 - `FINANCIAL_NORMALIZER_BATCH_SIZE=100`
+
+## Ingest — dois passes por ciclo
+
+O worker faz **dois fetches por ciclo**, ambos com upsert no mesmo raw (dedup pela unique key):
+
+1. **Pass `date`** — janela `[hoje−dateDaysBack, hoje+dateDaysForward]`. Cobre passado recente + futuro próximo. Garante que boletos/impostos/recorrências que **vencem** na janela operacional estão sincronizados, mesmo que tenham sido criados meses atrás (`updated_at` antigo).
+2. **Pass `updated_at`** — janela `[hoje−daysBack−lookback, hoje]`. Pega edições e lançamentos recém-criados, inclusive recorrências com `date` distante (fora da janela do pass 1).
+
+Motivo: a Saipos gera lançamentos recorrentes/agendados com `date` futuro mas `updated_at` da data de criação. Filtrar só por `updated_at` perde esses lançamentos. Cada pass é isolado — falha em um (ex: 504) não impede o outro.
 
 ## Rollout
 

@@ -126,22 +126,26 @@ export const config = {
    */
   financialIngest: {
     /**
-     * Days back for financial transactions lookup.
-     * Saipos financial endpoint supports at most 15 days per request.
+     * Worker faz dois passes por ciclo. Saipos limita cada request a 15 dias.
+     *
+     * Pass `updated_at` — pega edições e lançamentos recém-criados/editados
+     * (inclui recorrências futuras criadas agora). Janela termina em "agora".
      */
     daysBack: num("FINANCIAL_INGEST_DAYS_BACK", 7),
 
     /**
-     * Date column used for incremental fetches.
-     * Recommended default: updated_at
-     */
-    dateColumnFilter:
-      process.env.FINANCIAL_INGEST_DATE_COLUMN_FILTER || "updated_at",
-
-    /**
-     * Lookback hours to re-fetch recent updates safely.
+     * Lookback hours do pass `updated_at`, margem pra re-fetch seguro.
      */
     lookbackHours: num("FINANCIAL_INGEST_LOOKBACK_HOURS", 26),
+
+    /**
+     * Pass `date` — janela operacional (passado recente + futuro próximo).
+     * Garante que boletos/impostos/recorrências que VENCEM na janela estão
+     * sincronizados, mesmo criados meses atrás (updated_at antigo).
+     * dateDaysBack + dateDaysForward não pode passar de 15.
+     */
+    dateDaysBack: num("FINANCIAL_INGEST_DATE_DAYS_BACK", 8),
+    dateDaysForward: num("FINANCIAL_INGEST_DATE_DAYS_FORWARD", 6),
   },
 
   /**
