@@ -1,6 +1,7 @@
 import axios from "axios";
 import { config } from "../config";
 import { sleep } from "../utils/common";
+import { paginateStrict } from "./paginate";
 
 /**
  * Saipos Data API client
@@ -264,25 +265,19 @@ export async function financialTransactionsAll(params: {
     }
   }
 
-  const out: any[] = [];
+  // Strict: a non-array response or hitting maxPages throws instead of
+  // silently returning a partial/empty list (see saipos/paginate.ts).
+  const { rows } = await paginateStrict(
+    (offset, pageLimit) =>
+      financialTransactions({
+        p_date_column_filter: params.p_date_column_filter,
+        p_filter_date_start: params.p_filter_date_start,
+        p_filter_date_end: params.p_filter_date_end,
+        p_limit: pageLimit,
+        p_offset: offset,
+      }),
+    { limit, maxPages }
+  );
 
-  for (let page = 0; page < maxPages; page++) {
-    const offset = page * limit;
-
-    const raw = await financialTransactions({
-      p_date_column_filter: params.p_date_column_filter,
-      p_filter_date_start: params.p_filter_date_start,
-      p_filter_date_end: params.p_filter_date_end,
-      p_limit: limit,
-      p_offset: offset,
-    });
-
-    const rows = extractRows(raw);
-    if (!rows.length) break;
-
-    out.push(...rows);
-    if (rows.length < limit) break;
-  }
-
-  return out;
+  return rows;
 }
