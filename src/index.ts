@@ -3,6 +3,7 @@ import { runWorkerForever } from "./worker";
 import { runNormalizerForever } from "./normalizer";
 import { runFinancialWorkerForever } from "./financialWorker";
 import { runFinancialNormalizerForever } from "./financialNormalizer";
+import { runFinancialSweepScheduler } from "./financialSweep/run";
 
 /**
  * Application entrypoint. Performs a DB health-check then starts the
@@ -22,6 +23,7 @@ async function main() {
   console.log("🧾 Financial normalizer iniciado.");
   runFinancialNormalizerForever();
 
+  runFinancialSweepScheduler().catch((e) => console.error("❌ Financial sweep scheduler crashed:", e?.message || e));
 }
 
 main().catch((e) => {

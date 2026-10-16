@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { parseSweepConfig } from "./financialSweep/logic";
 
 /**
  * Ensures an environment variable exists.
@@ -154,5 +155,16 @@ export const config = {
   financialNormalize: {
     batchSize: num("FINANCIAL_NORMALIZER_BATCH_SIZE", 100),
   },
+
+  /**
+   * Daily financial deletion sweep (docs/2026-10-16-deletion-propagation-design.md).
+   *
+   * FINANCIAL_SWEEP_MODE=off|dry_run|apply (default dry_run)
+   * FINANCIAL_SWEEP_AT=HH:MM (default 04:30), FINANCIAL_SWEEP_TZ (default America/Sao_Paulo)
+   * FINANCIAL_SWEEP_RANGE_START (default 2025-09-01), FINANCIAL_SWEEP_FORWARD_DAYS (default 31)
+   * FINANCIAL_SWEEP_SLEEP_MS (default 400), FINANCIAL_SWEEP_BREAKER_MIN (50),
+   * FINANCIAL_SWEEP_BREAKER_PCT (5), FINANCIAL_SWEEP_MIN_STRIKE_GAP_HOURS (20)
+   */
+  financialSweep: parseSweepConfig(process.env),
 
 };

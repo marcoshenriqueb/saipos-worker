@@ -278,56 +278,115 @@ export async function markRawNormalizeError(id: number, error: string): Promise<
 // Financial transactions raw + normalized
 // =========================
 
+/**
+ * Whether migration 0014 (financial tombstones) is applied. Lets this image be
+ * deployed before the migration runs without breaking the 2-min ingest:
+ * until the columns exist, the legacy SQL is used. A positive answer is cached;
+ * a negative one is rechecked at most every 5 minutes.
+ */
+let tombstoneSchemaReady = false;
+let tombstoneSchemaCheckedAt = 0;
+
+export async function hasTombstoneSchema(): Promise<boolean> {
+  if (tombstoneSchemaReady) return true;
+  if (Date.now() - tombstoneSchemaCheckedAt < 5 * 60 * 1000 && tombstoneSchemaCheckedAt > 0) return false;
+  tombstoneSchemaCheckedAt = Date.now();
+  const r = await pool.query(
+    `
+    select
+      exists (
+        select 1 from information_schema.columns
+        where table_schema = current_schema()
+          and table_name = 'financial_transactions_raw' and column_name = 'deleted_at_source'
+      ) as raw_ok,
+      exists (
+        select 1 from information_schema.columns
+        where table_schema = current_schema()
+          and table_name = 'financial_transactions' and column_name = 'deleted_at_source'
+      ) as ft_ok
+    `
+  );
+  tombstoneSchemaReady = Boolean(r.rows[0]?.raw_ok && r.rows[0]?.ft_ok);
+  return tombstoneSchemaReady;
+}
+
+/**
+ * Upsert into financial_transactions_raw.
+ *
+ * Being returned by the API means the row is alive: any upsert clears
+ * missing_since / deleted_at_source, and if the row was tombstoned it is
+ * re-queued for normalization so financial_transactions.deleted_at_source
+ * goes back to NULL. last_swept_at is only written by the sweep.
+ */
 export async function upsertFinancialTransactionRaw(args: {
   provider: string;
   store_id: string;
   financial_transaction_id: string;
   received_at: string;
   payload: any;
+  last_swept_at?: string | null;
 }): Promise<void> {
+  const tomb = await hasTombstoneSchema();
+  // "Must renormalize": payload changed, or the row was tombstoned and is back.
+  const renorm = tomb
+    ? `(financial_transactions_raw.payload_hash is distinct from excluded.payload_hash
+          or financial_transactions_raw.deleted_at_source is not null)`
+    : `financial_transactions_raw.payload_hash is distinct from excluded.payload_hash`;
+
+  const params: any[] = [
+    args.provider,
+    args.store_id,
+    args.financial_transaction_id,
+    args.received_at,
+    JSON.stringify(args.payload),
+  ];
+  if (tomb) params.push(args.last_swept_at ?? null);
+
   await pool.query(
     `
     insert into financial_transactions_raw (
       provider, store_id, financial_transaction_id, received_at, payload, payload_hash
+      ${tomb ? ", last_swept_at" : ""}
     )
-    values ($1,$2,$3,$4,$5::jsonb, md5(($5::jsonb)::text))
+    values ($1,$2,$3,$4,$5::jsonb, md5(($5::jsonb)::text) ${tomb ? ", $6::timestamptz" : ""})
     on conflict (provider, store_id, financial_transaction_id)
     do update set
       received_at = excluded.received_at,
       payload = excluded.payload,
       payload_hash = excluded.payload_hash,
+      ${
+        tomb
+          ? `last_swept_at = coalesce(excluded.last_swept_at, financial_transactions_raw.last_swept_at),
+      missing_since = null,
+      deleted_at_source = null,`
+          : ""
+      }
       normalized = case
-        when financial_transactions_raw.payload_hash is distinct from excluded.payload_hash then false
+        when ${renorm} then false
         else financial_transactions_raw.normalized
       end,
       normalized_at = case
-        when financial_transactions_raw.payload_hash is distinct from excluded.payload_hash then null
+        when ${renorm} then null
         else financial_transactions_raw.normalized_at
       end,
       attempts = case
-        when financial_transactions_raw.payload_hash is distinct from excluded.payload_hash then 0
+        when ${renorm} then 0
         else financial_transactions_raw.attempts
       end,
       last_error = case
-        when financial_transactions_raw.payload_hash is distinct from excluded.payload_hash then null
+        when ${renorm} then null
         else financial_transactions_raw.last_error
       end,
       next_retry_at = case
-        when financial_transactions_raw.payload_hash is distinct from excluded.payload_hash then null
+        when ${renorm} then null
         else financial_transactions_raw.next_retry_at
       end,
       processing_started_at = case
-        when financial_transactions_raw.payload_hash is distinct from excluded.payload_hash then null
+        when ${renorm} then null
         else financial_transactions_raw.processing_started_at
       end
     `,
-    [
-      args.provider,
-      args.store_id,
-      args.financial_transaction_id,
-      args.received_at,
-      JSON.stringify(args.payload),
-    ]
+    params
   );
 }
 
@@ -433,6 +492,9 @@ export async function upsertFinancialTransactionWithChildren(args: {
   children: any[];
 }): Promise<number> {
   const children = Array.isArray(args.children) ? args.children : [];
+  // deleted_at_source mirrors the raw row's value at write time (the sweep
+  // tombstones raw + normalized together; a revived raw row has it NULL).
+  const tomb = await hasTombstoneSchema();
   const client = await pool.connect();
 
   try {
@@ -451,6 +513,7 @@ export async function upsertFinancialTransactionWithChildren(args: {
         transaction_desc, financial_category_desc,
         children_count,
         received_at, updated_at
+        ${tomb ? ", deleted_at_source" : ""}
       )
       values (
         $1,$2,$3,
@@ -463,6 +526,12 @@ export async function upsertFinancialTransactionWithChildren(args: {
         $19,$20,
         $21,
         $22, now()
+        ${
+          tomb
+            ? `, (select r.deleted_at_source from financial_transactions_raw r
+                 where r.provider = $1 and r.store_id = $2 and r.financial_transaction_id = $3)`
+            : ""
+        }
       )
       on conflict (provider, store_id, financial_transaction_id)
       do update set
@@ -486,6 +555,7 @@ export async function upsertFinancialTransactionWithChildren(args: {
         children_count = excluded.children_count,
         received_at = excluded.received_at,
         updated_at = now()
+        ${tomb ? ", deleted_at_source = excluded.deleted_at_source" : ""}
       returning id
       `,
       [
