@@ -43,6 +43,7 @@ export async function finishSweep(
     windowsTotal?: number;
     windowsOk?: number;
     windowsFailed?: number;
+    windowsEmptyNull?: number;
     rowsSeen?: number;
     rowsNew?: number;
     rowsInRange?: number;
@@ -64,7 +65,8 @@ export async function finishSweep(
       windows_total = $5, windows_ok = $6, windows_failed = $7,
       rows_seen = $8, rows_new = $9, rows_in_range = $10, candidates = $11,
       marked_missing = $12, tombstoned = $13, cleared = $14,
-      breaker_limit = $15, abort_reason = $16, sample = $17::jsonb
+      breaker_limit = $15, abort_reason = $16, sample = $17::jsonb,
+      windows_empty_null = $18
     where id = $1
     `,
     [
@@ -85,8 +87,18 @@ export async function finishSweep(
       f.breakerLimit ?? null,
       f.abortReason ?? null,
       f.sample == null ? null : JSON.stringify(f.sample),
+      f.windowsEmptyNull ?? 0,
     ]
   );
+}
+
+/** Normalized rows dated inside [start, end] (end inclusive to the second), tombstoned or not. */
+export async function countMirrorRowsInWindow(start: Date, end: Date): Promise<number> {
+  const r = await pool.query(
+    `select count(*)::int as n from financial_transactions where date >= $1 and date < $2`,
+    [start.toISOString(), new Date(end.getTime() + 1000).toISOString()]
+  );
+  return Number(r.rows[0]?.n ?? 0);
 }
 
 export async function getMaxKnownDate(): Promise<Date | null> {

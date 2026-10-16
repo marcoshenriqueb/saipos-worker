@@ -4,6 +4,7 @@ import { financialTransactionsAll } from "../saipos/dataApi";
 import { fmtUtc, sleep } from "../utils/common";
 import {
   applyStrikes,
+  countMirrorRowsInWindow,
   finishSweep,
   getMaxKnownDate,
   insertSweep,
@@ -88,8 +89,14 @@ export async function runFinancialSweep(opts: {
             p_filter_date_end: fmtUtc(win.end),
             p_limit: 300,
             maxPages: cfg.maxPagesPerWindow,
+            nullAsEmpty: false,
           }),
-        { attempts: cfg.windowAttempts, backoffMs: cfg.windowBackoffMs, sleep }
+        {
+          attempts: cfg.windowAttempts,
+          backoffMs: cfg.windowBackoffMs,
+          sleep,
+          mirrorRowsInWindow: (win) => countMirrorRowsInWindow(win.start, win.end),
+        }
       );
       results.push(res);
       if (!res.ok) {
@@ -118,7 +125,7 @@ export async function runFinancialSweep(opts: {
     });
 
     console.log(
-      `${tag} #${sweepId} windows ok=${plan.windowsOk}/${plan.windowsTotal} seen=${plan.rowsSeen} new=${plan.rowsNew} ` +
+      `${tag} #${sweepId} windows ok=${plan.windowsOk}/${plan.windowsTotal} (emptyNull=${plan.windowsEmptyNull}) seen=${plan.rowsSeen} new=${plan.rowsNew} ` +
         `inRange=${plan.rowsInRange} candidates=${plan.candidates.length} (limit ${plan.breakerLimit}) ` +
         `strike1=${plan.strike1.length} strike2=${plan.strike2.length} clear=${plan.clear.length}` +
         (plan.abortReason ? ` | ABORT: ${plan.abortReason}` : "")
@@ -173,6 +180,7 @@ export async function runFinancialSweep(opts: {
       windowsTotal: plan.windowsTotal,
       windowsOk: plan.windowsOk,
       windowsFailed: plan.windowsFailed,
+      windowsEmptyNull: plan.windowsEmptyNull,
       rowsSeen: plan.rowsSeen,
       rowsNew: plan.rowsNew,
       rowsInRange: plan.rowsInRange,

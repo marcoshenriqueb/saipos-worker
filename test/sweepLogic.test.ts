@@ -198,6 +198,72 @@ test("readWindow: page limit / non-array errors from the client fail the window"
   }
 });
 
+// --- null response (API returns null for a window with no rows) ----------
+
+import { NullResponseError } from "../src/saipos/paginate";
+
+const nullOpts = (n: number | (() => never)) => ({
+  attempts: 2,
+  backoffMs: [0],
+  sleep: async () => undefined,
+  mirrorRowsInWindow: async () => (typeof n === "number" ? n : n()),
+});
+
+test("readWindow: null + no mirror rows in window → complete empty window", async () => {
+  const r = await readWindow(W, async () => { throw new NullResponseError(); }, nullOpts(0));
+  assert.equal(r.ok, true);
+  if (r.ok) {
+    assert.equal(r.rows.length, 0);
+    assert.equal(r.emptyByNull, true);
+  }
+});
+
+test("readWindow: null + mirror has rows in window → failure (abort)", async () => {
+  const r = await readWindow(W, async () => { throw new NullResponseError(); }, nullOpts(3));
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.match(r.error, /mirror has 3 row/);
+  const plan = planSweep({
+    windows: [r],
+    mirror: [],
+    sweepStartedAt: T0,
+    candidateStart: new Date("2025-01-01Z"),
+    candidateEnd: new Date("2027-01-01Z"),
+    breakerMin: 50,
+    breakerPct: 5,
+    minStrikeGapMs: 20 * HOUR,
+  });
+  assert.equal(plan.status, "aborted");
+  assert.equal(plan.strike1.length + plan.strike2.length, 0);
+});
+
+test("readWindow: null with failing mirror check → failure", async () => {
+  const r = await readWindow(W, async () => { throw new NullResponseError(); }, nullOpts(() => { throw new Error("db down"); }));
+  assert.equal(r.ok, false);
+});
+
+test("readWindow: object / string response is a failure even with zero mirror rows", async () => {
+  for (const msg of ["unexpected non-array response: {}", 'unexpected non-array response: "x"']) {
+    const r = await readWindow(W, async () => { throw new Error(msg); }, nullOpts(0));
+    assert.equal(r.ok, false);
+  }
+});
+
+test("planSweep: counts windows accepted as empty-by-null", () => {
+  const e: WindowResult = { window: W, ok: true, attempts: 2, rows: [], emptyByNull: true };
+  const plan = planSweep({
+    windows: [okWindow("a"), e],
+    mirror: [mirrorRow("a")],
+    sweepStartedAt: T0,
+    candidateStart: new Date("2025-01-01Z"),
+    candidateEnd: new Date("2027-01-01Z"),
+    breakerMin: 50,
+    breakerPct: 5,
+    minStrikeGapMs: 20 * HOUR,
+  });
+  assert.equal(plan.status, "complete");
+  assert.equal(plan.windowsEmptyNull, 1);
+});
+
 // --- circuit breaker ------------------------------------------------------
 
 function bigMirror(nLive: number, nGone: number): { mirror: MirrorRow[]; seen: string[] } {

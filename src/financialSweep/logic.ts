@@ -6,6 +6,8 @@
  * unit-testable. See docs/2026-10-16-deletion-propagation-design.md §3.
  */
 
+import { NullResponseError } from "../saipos/paginate";
+
 export const DAY_MS = 24 * 60 * 60 * 1000;
 export const SAIPOS_MAX_WINDOW_DAYS = 15;
 
@@ -154,7 +156,7 @@ export function keyWindowRows(rows: any[]): SeenRow[] {
 }
 
 export type WindowResult =
-  | { window: SweepWindow; ok: true; rows: SeenRow[]; attempts: number }
+  | { window: SweepWindow; ok: true; rows: SeenRow[]; attempts: number; emptyByNull?: boolean }
   | { window: SweepWindow; ok: false; error: string; attempts: number };
 
 /**
@@ -164,9 +166,21 @@ export type WindowResult =
 export async function readWindow(
   window: SweepWindow,
   fetchWindow: (w: SweepWindow) => Promise<any[]>,
-  opts: { attempts: number; backoffMs: number[]; sleep: (ms: number) => Promise<void> }
+  opts: {
+    attempts: number;
+    backoffMs: number[];
+    sleep: (ms: number) => Promise<void>;
+    /**
+     * Number of mirror rows dated inside the window. Only consulted when the
+     * API answered `null` on every attempt: null is then a complete EMPTY
+     * window iff this is 0; otherwise (or if the check throws) it stays a
+     * failure. Without this option null is always a failure.
+     */
+    mirrorRowsInWindow?: (w: SweepWindow) => Promise<number>;
+  }
 ): Promise<WindowResult> {
   let lastError = "";
+  let lastWasNull = false;
   const attempts = Math.max(1, Math.floor(opts.attempts));
   for (let attempt = 1; attempt <= attempts; attempt++) {
     if (attempt > 1) {
@@ -178,6 +192,16 @@ export async function readWindow(
       return { window, ok: true, rows, attempts: attempt };
     } catch (e: any) {
       lastError = String(e?.message || e);
+      lastWasNull = e instanceof NullResponseError;
+    }
+  }
+  if (lastWasNull && opts.mirrorRowsInWindow) {
+    try {
+      const n = await opts.mirrorRowsInWindow(window);
+      if (n === 0) return { window, ok: true, rows: [], attempts, emptyByNull: true };
+      lastError = `${lastError}; mirror has ${n} row(s) in this window, so null is not accepted as empty`;
+    } catch (e: any) {
+      lastError = `${lastError}; mirror check failed: ${String(e?.message || e)}`;
     }
   }
   return { window, ok: false, error: lastError, attempts };
@@ -204,6 +228,8 @@ export type SweepPlan = {
   windowsTotal: number;
   windowsOk: number;
   windowsFailed: number;
+  /** Windows accepted as empty because the API returned null and the mirror had no rows there. */
+  windowsEmptyNull: number;
   rowsSeen: number;
   rowsNew: number;
   rowsInRange: number;
@@ -249,6 +275,7 @@ export function planSweep(input: {
     windowsTotal,
     windowsOk,
     windowsFailed: failed.length,
+    windowsEmptyNull: input.windows.filter((w) => w.ok && w.emptyByNull).length,
     rowsSeen: seen.length,
     rowsNew,
   };

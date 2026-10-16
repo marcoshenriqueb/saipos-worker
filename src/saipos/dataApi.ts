@@ -251,6 +251,12 @@ export async function financialTransactionsAll(params: {
   p_filter_date_end: string;
   p_limit?: number;
   maxPages?: number;
+  /**
+   * Default true (regular ingest passes: null == no rows, as before d0e8cf4;
+   * passes never tombstone). The deletion sweep passes false and decides
+   * itself whether null is an empty window.
+   */
+  nullAsEmpty?: boolean;
 }): Promise<any[]> {
   const limit = params.p_limit ?? 300;
   const maxPages = params.maxPages ?? 50;
@@ -276,7 +282,7 @@ export async function financialTransactionsAll(params: {
         p_limit: pageLimit,
         p_offset: offset,
       }),
-    { limit, maxPages }
+    { limit, maxPages, nullFirstPageAsEmpty: params.nullAsEmpty ?? true }
   );
 
   return rows;

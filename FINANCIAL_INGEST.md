@@ -54,6 +54,8 @@ O backfill grava em `financial_transactions_raw` via upsert. O normalizer cuida 
 
 Design: `docs/2026-10-16-deletion-propagation-design.md`. Migration: `0014_financial_tombstones.sql`.
 
+Null windows: the Data API returns `null` (not `[]`) for a window with no rows. Regular passes treat a null first page as empty (they never tombstone). The sweep accepts a null window as complete-empty ONLY if `financial_transactions` has zero rows dated in it (counted in `financial_sweeps.windows_empty_null`, migration `0015`); otherwise it aborts. Objects/strings are failures everywhere.
+
 The Saipos API has no "deleted" flag: a deleted financial transaction simply stops
 being returned. Once a day the worker reads **every** `date` window from
 `FINANCIAL_SWEEP_RANGE_START` to `max(financial_transactions.date, now) + FINANCIAL_SWEEP_FORWARD_DAYS`

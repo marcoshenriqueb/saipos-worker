@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractRowsStrict, IncompleteReadError, paginateStrict } from "../src/saipos/paginate";
+import { NullResponseError, extractRowsStrict, IncompleteReadError, paginateStrict } from "../src/saipos/paginate";
 
 const rows = (n: number, from = 0) => Array.from({ length: n }, (_, i) => ({ id: from + i }));
 
@@ -48,4 +48,21 @@ test("paginateStrict: non-array page mid-read fails the whole read", async () =>
     paginateStrict(async (offset, limit) => pages[offset / limit], { limit: 3, maxPages: 10 }),
     IncompleteReadError
   );
+});
+
+test("null is a NullResponseError (an IncompleteReadError); objects/strings are not", () => {
+  assert.throws(() => extractRowsStrict(null), NullResponseError);
+  assert.throws(() => extractRowsStrict({}), (e: any) => e instanceof IncompleteReadError && !(e instanceof NullResponseError));
+  assert.throws(() => extractRowsStrict("x"), (e: any) => !(e instanceof NullResponseError));
+});
+
+test("paginateStrict nullFirstPageAsEmpty: null first page = empty; null mid-read and objects still fail", async () => {
+  const r = await paginateStrict(async () => null, { limit: 3, maxPages: 5, nullFirstPageAsEmpty: true });
+  assert.equal(r.rows.length, 0);
+  await assert.rejects(paginateStrict(async () => null, { limit: 3, maxPages: 5 }), NullResponseError);
+  await assert.rejects(
+    paginateStrict(async (o) => (o === 0 ? rows(3) : null), { limit: 3, maxPages: 5, nullFirstPageAsEmpty: true }),
+    IncompleteReadError
+  );
+  await assert.rejects(paginateStrict(async () => ({}), { limit: 3, maxPages: 5, nullFirstPageAsEmpty: true }), IncompleteReadError);
 });
